@@ -14,11 +14,10 @@ export default defineConfig({
   ],
   build: {
     outDir: 'dist',
-    rollupOptions: {
-      input: {
-        main: './index.html',
-        dashboard: './dashboard.html'
-      },
+        rollupOptions: {
+          input: {
+            main: './index.html'
+          },
       output: {
         manualChunks: {
           'cosmjs': ['@cosmjs/stargate', '@cosmjs/proto-signing', '@cosmjs/tendermint-rpc']

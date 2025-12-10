@@ -55,6 +55,15 @@ export async function postFile(
         { registry }
     );
 
+    // Query account to get current sequence number
+    // This ensures we use the correct sequence and avoid sequence mismatches
+    const account = await signingClient.getAccount(userAddress);
+    if (!account) {
+        throw new Error('Account not found');
+    }
+    
+    console.log('Current account sequence:', account.sequence);
+
     // Create message using the generated type
     const msg = {
         typeUrl: '/osdblockchain.osdblockchain.v1.MsgPostFile',
@@ -74,6 +83,7 @@ export async function postFile(
         gas: '2000000'
     };
 
+    console.log('Broadcasting transaction with sequence:', account.sequence);
     const result = await signingClient.signAndBroadcast(
         userAddress,
         [msg],

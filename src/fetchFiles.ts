@@ -1,6 +1,6 @@
 // Fetch files from blockchain
 
-import { getKeplr, CHAIN_ID } from './utils';
+import { getKeplr, CHAIN_ID, deriveECIESPrivateKey } from './utils';
 
 // Fetch with timeout helper
 async function fetchWithTimeout(url: string, timeout: number = 10000): Promise<Response> {
@@ -33,56 +33,54 @@ async function calculateMerkleRoot(data: ArrayBuffer): Promise<string> {
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-// Decrypt file using wallet signature (reverse of encryption)
-async function decryptFile(encryptedBlob: Blob, userAddress: string, originalFileHash: string): Promise<Blob> {
-    const keplr = getKeplr();
-    if (!keplr || !keplr.signArbitrary) {
-        throw new Error('Keplr signArbitrary not available');
-    }
 
-    // Create the same message that was used for encryption
-    const messageToSign = `File encryption: ${originalFileHash}`;
+// Decrypt file using AES-256-GCM with ECIES key derivation
+async function decryptFile(encryptedBlob: Blob, userAddress: string, originalFileHash: string): Promise<Blob> {
+    // Derive ECIES private key from wallet signature (same as encryption)
+    const eciesKeyMaterial = await deriveECIESPrivateKey(userAddress);
     
-    // Request signature from Keplr (same signature as encryption)
-    const signatureResult = await keplr.signArbitrary(CHAIN_ID, userAddress, messageToSign);
-    
-    // Derive decryption key from signature (same process as encryption)
-    const signatureBytes = Uint8Array.from(atob(signatureResult.signature), c => c.charCodeAt(0));
-    const keyMaterial = await crypto.subtle.importKey(
-        'raw',
-        signatureBytes.slice(0, 32),
-        'PBKDF2',
-        false,
-        ['deriveBits', 'deriveKey']
-    );
-    
-    // Derive AES key (same parameters as encryption)
-    const key = await crypto.subtle.deriveKey(
+    // Derive AES-256-GCM key from ECIES private key material (same as encryption)
+    const aesKey = await crypto.subtle.deriveKey(
         {
             name: 'PBKDF2',
             salt: new Uint8Array(0),
             iterations: 10000,
             hash: 'SHA-256'
         },
-        keyMaterial,
-        { name: 'AES-CBC', length: 256 },
+        eciesKeyMaterial,
+        { name: 'AES-GCM', length: 256 },
         false,
-        ['decrypt'] // Note: decrypt instead of encrypt
+        ['decrypt']
     );
     
     // Read encrypted data
     const encryptedData = await encryptedBlob.arrayBuffer();
+    
+    // Validate encrypted data size (must have at least 12 bytes for IV)
+    if (encryptedData.byteLength < 12) {
+        throw new Error('Encrypted file is too small (missing IV)');
+    }
+    
     const encryptedArray = new Uint8Array(encryptedData);
     
-    // Extract IV (first 16 bytes) and encrypted content (rest)
-    const iv = encryptedArray.slice(0, 16);
-    const ciphertext = encryptedArray.slice(16);
+    // Extract IV (first 12 bytes) and encrypted content + tag (rest)
+    const iv = encryptedArray.slice(0, 12);
+    const ciphertextWithTag = encryptedArray.slice(12);
     
-    // Decrypt
+    // Validate ciphertext size (must have at least 16 bytes for authentication tag)
+    if (ciphertextWithTag.length < 16) {
+        throw new Error('Encrypted file is too small (missing authentication tag)');
+    }
+    
+    // Decrypt with AES-GCM (automatically verifies authentication tag)
     const decryptedData = await crypto.subtle.decrypt(
-        { name: 'AES-CBC', iv: iv },
-        key,
-        ciphertext
+        { 
+            name: 'AES-GCM',
+            iv: iv,
+            tagLength: 128 // 128-bit authentication tag
+        },
+        aesKey,
+        ciphertextWithTag
     );
     
     return new Blob([decryptedData]);
@@ -121,70 +119,132 @@ function formatDate(timestamp: number): string {
 // Download file from storage provider
 async function downloadFile(fileMetadata: any, walletAddress: string): Promise<void> {
     try {
-        // Parse metadata
-        const metadata = JSON.parse(fileMetadata.metadata || '{}');
-        const fileName = metadata.name || 'file';
-        const contentType = metadata.content_type || 'application/octet-stream';
-        
-        // For now, we need to query the blockchain to get storage providers for this file
-        // This is a simplified version - in production you'd query the blockchain for providers
+        // Step 1: Query file information from blockchain
         const apiEndpoint = 'https://storage.datavault.space';
-        
-        // Try to download from storage provider
-        // Note: This assumes we can construct the download URL from merkle root
-        // You may need to query the blockchain first to get the provider address
-        const downloadUrl = `${apiEndpoint}/api/v1/files/download/${fileMetadata.merkleRoot}`;
-        
-        console.log('Downloading file from:', downloadUrl);
-        
-        // Fetch encrypted file
-        const response = await fetch(downloadUrl);
-        if (!response.ok) {
-            throw new Error(`Failed to download file: ${response.status} ${response.statusText}`);
+        // Handle both camelCase and snake_case for merkle root
+        const merkleRoot = fileMetadata.merkleRoot || fileMetadata.merkle_root || '';
+        if (!merkleRoot) {
+            throw new Error('Merkle root not found in file metadata');
         }
         
-        const encryptedBlob = await response.blob();
+        const downloadInfoUrl = `${apiEndpoint}/osd-blockchain/osdblockchain/v1/file/${merkleRoot}/download?owner=${walletAddress}`;
         
-        // Calculate original file hash from metadata (we need this for decryption)
-        // Note: We need the original file hash, but we only have the encrypted file hash (merkleRoot)
-        // This is a limitation - we may need to store the original hash separately or use a different approach
-        // For now, we'll try to decrypt using the merkle root as a reference
-        // In practice, you might need to query additional metadata or use a different key derivation
+        console.log('Querying file info from:', downloadInfoUrl);
         
-        // Get user address for decryption
-        const keplr = getKeplr();
-        if (!keplr) {
-            throw new Error('Keplr not available');
+        const infoResponse = await fetchWithTimeout(downloadInfoUrl, 15000);
+        if (!infoResponse.ok) {
+            throw new Error(`Failed to query file info: ${infoResponse.status} ${infoResponse.statusText}`);
         }
         
-        await keplr.enable(CHAIN_ID);
-        const offlineSigner = keplr.getOfflineSigner(CHAIN_ID);
-        const accounts = await offlineSigner.getAccounts();
-        const userAddress = accounts[0].address;
+        const downloadInfo = await infoResponse.json();
+        console.log('File download info:', downloadInfo);
         
-        // Note: We need the original file hash to decrypt, but we only have the encrypted file's merkle root
-        // This is a design limitation. For now, we'll show an error message explaining this.
-        // In a production system, you'd need to either:
-        // 1. Store the original file hash in metadata
-        // 2. Use a deterministic key derivation that doesn't require the original hash
-        // 3. Query additional information from the blockchain
+        // Parse metadata (handle both camelCase and snake_case)
+        const fileData = downloadInfo.file || {};
+        const metadataStr = fileData.metadata || '';
+        const metadata = JSON.parse(metadataStr || '{}');
+        const fileName = metadata.name || 'file';
+        const originalFileHash = metadata.original_file_hash;
         
-        throw new Error('File decryption requires original file hash. This feature needs additional implementation.');
+        if (!originalFileHash) {
+            throw new Error('Original file hash not found in metadata. This file may have been uploaded before hash storage was implemented.');
+        }
+        
+        // Step 2: Download encrypted file from storage provider
+        const storageProviders = downloadInfo.storage_providers || [];
+        if (storageProviders.length === 0) {
+            throw new Error('No storage providers available for this file');
+        }
+        
+        // Use the first available storage provider
+        const provider = storageProviders[0];
+        const providerAddress = provider.provider_address || provider.providerAddress;
+        
+        if (!providerAddress) {
+            throw new Error('Storage provider address not found');
+        }
+        
+        // Construct download URL - format: https://{provider_address}/api/v1/files/download?merkle_root={merkle_root}
+        let downloadUrl: string;
+        if (providerAddress.includes('storage.datavault.space')) {
+            // Use Caddy proxy
+            downloadUrl = `https://storage.datavault.space/api/v1/files/download?merkle_root=${merkleRoot}`;
+        } else {
+            // Direct provider address - try HTTPS first, fallback to HTTP
+            const baseUrl = providerAddress.startsWith('http') ? providerAddress : `https://${providerAddress}`;
+            downloadUrl = `${baseUrl}/api/v1/files/download?merkle_root=${merkleRoot}`;
+        }
+        
+        console.log('Downloading encrypted file from:', downloadUrl);
+        
+        const encryptedResponse = await fetchWithTimeout(downloadUrl, 60000); // 60 second timeout for file download
+        if (!encryptedResponse.ok) {
+            // Try HTTP if HTTPS failed
+            if (downloadUrl.startsWith('https://') && !providerAddress.includes('storage.datavault.space')) {
+                const httpUrl = downloadUrl.replace('https://', 'http://');
+                console.log('HTTPS failed, trying HTTP:', httpUrl);
+                const httpResponse = await fetchWithTimeout(httpUrl, 60000);
+                if (!httpResponse.ok) {
+                    throw new Error(`Failed to download file: ${encryptedResponse.status} ${encryptedResponse.statusText}`);
+                }
+                const encryptedBlob = await httpResponse.blob();
+                await finishDownload(encryptedBlob, originalFileHash, walletAddress, fileName);
+            } else {
+                throw new Error(`Failed to download file: ${encryptedResponse.status} ${encryptedResponse.statusText}`);
+            }
+        } else {
+            const encryptedBlob = await encryptedResponse.blob();
+            await finishDownload(encryptedBlob, originalFileHash, walletAddress, fileName);
+        }
         
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Download failed';
         console.error('Download error:', error);
+        console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
         alert(`Download failed: ${errorMessage}`);
+        throw error;
     }
+}
+
+// Helper function to complete the download (decrypt and save)
+async function finishDownload(encryptedBlob: Blob, originalFileHash: string, walletAddress: string, fileName: string): Promise<void> {
+    // Step 3: Decrypt file using private key
+    console.log('Decrypting file...');
+    
+    // Use the walletAddress parameter directly (same format as used for caching)
+    // This ensures we use the same address format that was used to cache the ECIES key
+    const keplr = getKeplr();
+    if (!keplr) {
+        throw new Error('Keplr not available');
+    }
+    
+    await keplr.enable(CHAIN_ID);
+    // Get the bech32Address to match the format used during wallet connection
+    const key = await (keplr as any).getKey(CHAIN_ID);
+    const userAddress = key.bech32Address;
+    
+    // Decrypt the file using private key (signature-based)
+    const decryptedBlob = await decryptFile(encryptedBlob, userAddress, originalFileHash);
+    
+    // Step 4: Save file
+    console.log('Saving file:', fileName);
+    const url = URL.createObjectURL(decryptedBlob);
+    const $a = $('<a>').attr({ href: url, download: fileName });
+    $('body').append($a);
+    $a[0].click();
+    $a.remove();
+    URL.revokeObjectURL(url);
+    
+    console.log('File downloaded successfully');
 }
 
 // Fetch files from blockchain
 export async function fetchFiles(walletAddress: string): Promise<void> {
-    const contentArea = document.getElementById('contentArea');
-    if (!contentArea) return;
+    const $contentArea = $('#contentArea');
+    if ($contentArea.length === 0) return;
 
     // Show loading state
-    contentArea.innerHTML = '<div class="text-center"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div><p class="mt-2">Loading files...</p><p class="text-muted small">This may take a few seconds...</p></div>';
+    $contentArea.html('<div class="text-center"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div><p class="mt-2">Loading files...</p><p class="text-muted small">This may take a few seconds...</p></div>');
 
     try {
         // Construct API URL with wallet address
@@ -228,7 +288,7 @@ export async function fetchFiles(walletAddress: string): Promise<void> {
         
         // Display files as thumbnails
         if (files.length === 0) {
-            contentArea.innerHTML = `
+            $contentArea.html(`
                 <div class="card">
                     <div class="card-header">
                         <h5 class="mb-0">Files for ${walletAddress}</h5>
@@ -237,7 +297,7 @@ export async function fetchFiles(walletAddress: string): Promise<void> {
                         <p class="text-muted">No files found</p>
                     </div>
                 </div>
-            `;
+            `);
             return;
         }
         
@@ -253,10 +313,14 @@ export async function fetchFiles(walletAddress: string): Promise<void> {
             
             const fileName = metadata.name || 'Unknown File';
             const contentType = metadata.content_type || 'application/octet-stream';
-            const fileSize = formatFileSize(file.sizeBytes || 0);
-            const uploadDate = formatDate(file.uploadedAt || 0);
-            const expirationDate = formatDate(file.expirationTime || 0);
-            const isExpired = file.expirationTime && file.expirationTime < Math.floor(Date.now() / 1000);
+            // Handle both camelCase and snake_case from API
+            const fileSize = formatFileSize((file.sizeBytes || file.size_bytes || 0));
+            const uploadDate = formatDate((file.uploadedAt || file.uploaded_at || 0));
+            const expirationDate = formatDate((file.expirationTime || file.expiration_time || 0));
+            const expirationTimestamp = file.expirationTime || file.expiration_time || 0;
+            const isExpired = expirationTimestamp && expirationTimestamp < Math.floor(Date.now() / 1000);
+            // Handle both camelCase and snake_case for merkle root
+            const merkleRoot = file.merkleRoot || file.merkle_root || '';
             
             return `
                 <div class="col-md-3 col-sm-4 col-6 mb-4">
@@ -269,7 +333,7 @@ export async function fetchFiles(walletAddress: string): Promise<void> {
                             <p class="text-muted small mb-1">${fileSize}</p>
                             ${isExpired ? '<span class="badge bg-warning text-dark mb-2">Expired</span>' : ''}
                             <div class="mt-2">
-                                <button class="btn btn-sm btn-primary download-btn" data-merkle-root="${file.merkleRoot}" data-file-name="${fileName}" title="Download">
+                                <button class="btn btn-sm btn-primary download-btn" data-merkle-root="${merkleRoot}" data-file-name="${fileName}" title="Download">
                                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                                         <polyline points="7 10 12 15 17 10"></polyline>
@@ -287,7 +351,7 @@ export async function fetchFiles(walletAddress: string): Promise<void> {
             `;
         }).join('');
         
-        contentArea.innerHTML = `
+        $contentArea.html(`
             <div class="card">
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <h5 class="mb-0">Files (${files.length})</h5>
@@ -299,61 +363,58 @@ export async function fetchFiles(walletAddress: string): Promise<void> {
                     </div>
                 </div>
             </div>
-        `;
+        `);
         
         // Add event listeners to download buttons
-        const downloadButtons = contentArea.querySelectorAll('.download-btn');
-        downloadButtons.forEach(btn => {
-            btn.addEventListener('click', async (e) => {
-                e.preventDefault();
-                const button = e.currentTarget as HTMLButtonElement;
-                const merkleRoot = button.getAttribute('data-merkle-root');
-                const fileName = button.getAttribute('data-file-name') || 'file';
-                
-                if (!merkleRoot) {
-                    alert('File identifier not found');
-                    return;
-                }
-                
-                // Find the file metadata
-                const file = files.find((f: any) => f.merkleRoot === merkleRoot);
-                if (!file) {
-                    alert('File not found');
-                    return;
-                }
-                
-                // Disable button and show loading
-                button.disabled = true;
-                const originalHTML = button.innerHTML;
-                button.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
-                
-                try {
-                    await downloadFile(file, walletAddress);
-                } finally {
-                    button.disabled = false;
-                    button.innerHTML = originalHTML;
-                }
+        $contentArea.find('.download-btn').on('click', async function(e) {
+            e.preventDefault();
+            const $button = $(this);
+            const merkleRoot = $button.attr('data-merkle-root');
+            const fileName = $button.attr('data-file-name') || 'file';
+            
+            if (!merkleRoot) {
+                alert('File identifier not found');
+                return;
+            }
+            
+            // Find the file metadata (handle both camelCase and snake_case)
+            const file = files.find((f: any) => {
+                const fMerkleRoot = f.merkleRoot || f.merkle_root;
+                return fMerkleRoot === merkleRoot;
             });
+            if (!file) {
+                alert('File not found');
+                return;
+            }
+            
+            // Disable button and show loading
+            $button.prop('disabled', true);
+            const originalHTML = $button.html();
+            $button.html('<span class="spinner-border spinner-border-sm"></span>');
+            
+            try {
+                await downloadFile(file, walletAddress);
+            } finally {
+                $button.prop('disabled', false);
+                $button.html(originalHTML);
+            }
         });
         
         // Add hover effect to thumbnails
-        const thumbnails = contentArea.querySelectorAll('.file-thumbnail');
-        thumbnails.forEach(thumb => {
-            thumb.addEventListener('mouseenter', () => {
-                (thumb as HTMLElement).style.transform = 'translateY(-5px)';
-                (thumb as HTMLElement).style.boxShadow = '0 4px 8px rgba(0,0,0,0.1)';
-            });
-            thumb.addEventListener('mouseleave', () => {
-                (thumb as HTMLElement).style.transform = 'translateY(0)';
-                (thumb as HTMLElement).style.boxShadow = '';
-            });
+        $contentArea.find('.file-thumbnail').on({
+            mouseenter: function() {
+                $(this).css({ transform: 'translateY(-5px)', boxShadow: '0 4px 8px rgba(0,0,0,0.1)' });
+            },
+            mouseleave: function() {
+                $(this).css({ transform: 'translateY(0)', boxShadow: '' });
+            }
         });
     } catch (error) {
         // Display detailed error
         const errorMessage = error instanceof Error ? error.message : 'Failed to fetch files';
         console.error('Fetch error:', error);
         
-        contentArea.innerHTML = `
+        $contentArea.html(`
             <div class="alert alert-danger" role="alert">
                 <h5 class="alert-heading">Error Fetching Files</h5>
                 <p><strong>Error:</strong> ${errorMessage}</p>
@@ -368,7 +429,7 @@ export async function fetchFiles(walletAddress: string): Promise<void> {
                     <li>Check Caddy logs: <code>sudo journalctl -u caddy -f</code></li>
                 </ul>
             </div>
-        `;
+        `);
     }
 }
 

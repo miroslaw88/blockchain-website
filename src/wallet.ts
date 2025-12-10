@@ -106,18 +106,18 @@ export namespace Wallet {
 
     // Connect wallet function
     async function connectWallet(): Promise<void> {
-    const connectBtn = document.getElementById('connectBtn') as HTMLButtonElement;
-    const btnText = document.getElementById('btnText') as HTMLSpanElement;
-    const btnSpinner = document.getElementById('btnSpinner') as HTMLSpanElement;
-    const walletStatus = document.getElementById('walletStatus') as HTMLDivElement;
-    const statusContent = document.getElementById('statusContent') as HTMLDivElement;
+    const $connectBtn = $('#connectBtn');
+    const $btnText = $('#btnText');
+    const $btnSpinner = $('#btnSpinner');
+    const $walletStatus = $('#walletStatus');
+    const $statusContent = $('#statusContent');
 
     // Show loading state
-    connectBtn.disabled = true;
-    btnSpinner.classList.remove('d-none');
-    btnText.textContent = 'Connecting...';
-    walletStatus.className = 'wallet-status';
-    statusContent.innerHTML = '';
+    $connectBtn.prop('disabled', true);
+    $btnSpinner.removeClass('d-none');
+    $btnText.text('Connecting...');
+    $walletStatus.attr('class', 'wallet-status');
+    $statusContent.empty();
 
     try {
         // Wait for Keplr to be available
@@ -178,24 +178,35 @@ export namespace Wallet {
         sessionStorage.setItem('walletName', key.name);
         sessionStorage.setItem('chainId', CHAIN_ID);
 
-        // Redirect to dashboard after a brief delay
-        setTimeout(() => {
-            window.location.href = 'dashboard.html';
-        }, 500);
+        // Initialize ECIES key material right after wallet connection
+        // This ensures the key is cached before any file operations
+        try {
+            // Import the deriveECIESPrivateKey function
+            const { deriveECIESPrivateKey } = await import('./utils');
+            await deriveECIESPrivateKey(key.bech32Address);
+            console.log('ECIES key material initialized and cached during wallet connection');
+        } catch (error) {
+            console.warn('Failed to initialize ECIES key during wallet connection:', error);
+            // Don't block wallet connection if this fails - it will be initialized on first use
+        }
+
+        // Switch to dashboard view (no redirect)
+        const { switchToDashboard } = await import('./app');
+        switchToDashboard();
 
     } catch (error) {
         // Display error status
-        walletStatus.classList.add('error');
+        $walletStatus.addClass('error');
         const errorMessage = error instanceof Error ? error.message : 'Failed to connect wallet';
-        statusContent.innerHTML = `
+        $statusContent.html(`
             <p class="mb-0"><strong>Error:</strong> ${errorMessage}</p>
-        `;
+        `);
 
         // Reset button
-        btnText.textContent = 'Connect Wallet';
-        connectBtn.disabled = false;
+        $btnText.text('Connect Wallet');
+        $connectBtn.prop('disabled', false);
     } finally {
-        btnSpinner.classList.add('d-none');
+        $btnSpinner.addClass('d-none');
     }
     }
 
@@ -219,30 +230,38 @@ export namespace Wallet {
     }
     });
 
-    // Initialize on page load
-    export function init() {
-    // Check if wallet is already connected, redirect to dashboard
-    const walletConnected = sessionStorage.getItem('walletConnected');
-    if (walletConnected === 'true') {
-        window.location.href = 'dashboard.html';
-        return;
+    // Reset button state (called when switching to wallet connection view)
+    function resetButtonState(): void {
+        $('#connectBtn').prop('disabled', false);
+        $('#btnText').text('Connect Wallet');
+        $('#btnSpinner').addClass('d-none');
+        $('#walletStatus').attr('class', 'wallet-status').css('display', 'none');
+        $('#statusContent').empty();
     }
 
-    const connectBtn = document.getElementById('connectBtn');
-    if (connectBtn) {
-        connectBtn.addEventListener('click', connectWallet);
+    // Track if initialized to prevent duplicate event listeners
+    let walletInitialized = false;
+
+    // Initialize on page load
+    export function init() {
+    // Reset button state first (in case we're switching back from dashboard)
+    resetButtonState();
+    
+    // Prevent duplicate event listeners
+    if (walletInitialized) {
+        return;
     }
+    walletInitialized = true;
+    
+    $('#connectBtn').on('click', connectWallet);
 
     // Check if page is loaded via file:// protocol and show warning
     if (window.location.protocol === 'file:') {
-        const walletStatus = document.getElementById('walletStatus') as HTMLDivElement;
-        const statusContent = document.getElementById('statusContent') as HTMLDivElement;
-        walletStatus.classList.add('error');
-        walletStatus.style.display = 'block';
-        statusContent.innerHTML = `
+        $('#walletStatus').addClass('error').css('display', 'block');
+        $('#statusContent').html(`
             <p class="mb-2"><strong>Warning:</strong> This page is being loaded from a file:// URL.</p>
             <p class="mb-0">For best compatibility with Keplr, please use a local server. Run: <code>npm run serve</code></p>
-        `;
+        `);
     }
     // Don't check for Keplr on page load to avoid triggering extension scripts prematurely
     // The check will happen when user clicks the connect button
@@ -250,7 +269,7 @@ export namespace Wallet {
 }
 
 // Initialize on page load
-document.addEventListener('DOMContentLoaded', () => {
+$(document).ready(() => {
     Wallet.init();
 });
 

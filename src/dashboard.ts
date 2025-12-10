@@ -1,10 +1,12 @@
 // Dashboard functionality
-import { getKeplr, CHAIN_ID } from './utils';
+import { getKeplr, CHAIN_ID, deriveECIESPrivateKey, eciesKeyMaterialCache } from './utils';
 import { fetchFiles } from './fetchFiles';
 import { buyStorage } from './buyStorage';
 import { postFile } from './postFile';
 
 export namespace Dashboard {
+    // Flag to prevent concurrent uploads
+    let isUploading = false;
 
     // Disconnect wallet function
     async function disconnectWallet(): Promise<void> {
@@ -16,134 +18,145 @@ export namespace Dashboard {
         } catch (error) {
             console.error('Error disconnecting wallet:', error);
         } finally {
+            // Clear ECIES key cache
+            Object.keys(eciesKeyMaterialCache).forEach(key => {
+                delete eciesKeyMaterialCache[key];
+            });
+            
             // Clear all wallet session data
             sessionStorage.removeItem('walletConnected');
             sessionStorage.removeItem('walletAddress');
             sessionStorage.removeItem('walletName');
             sessionStorage.removeItem('chainId');
             
-            // Redirect back to home page
-            window.location.href = 'index.html';
+            // Switch back to wallet connection view (no redirect)
+            import('./app').then(({ switchToWalletConnection }) => {
+                switchToWalletConnection();
+            });
         }
     }
 
     // Handle menu item clicks
     function handleMenuClick(menuItem: HTMLElement): void {
         // Remove active class from all menu items
-        document.querySelectorAll('.sidebar-menu-item').forEach(item => {
-            item.classList.remove('active');
-        });
+        $('.sidebar-menu-item').removeClass('active');
         
         // Add active class to clicked item
-        menuItem.closest('.sidebar-menu-item')?.classList.add('active');
+        $(menuItem).closest('.sidebar-menu-item').addClass('active');
     }
 
 
+    // Track if drag and drop is initialized to prevent duplicate listeners
+    let dragAndDropInitialized = false;
+
     // Initialize drag and drop
     function initDragAndDrop(): void {
-        const dropZone = document.getElementById('dropZone');
-        const fileInput = document.getElementById('fileInput') as HTMLInputElement;
+        // Prevent duplicate initialization
+        if (dragAndDropInitialized) {
+            console.warn('Drag and drop already initialized, skipping');
+            return;
+        }
         
-        if (!dropZone || !fileInput) return;
+        const $dropZone = $('#dropZone');
+        const $fileInput = $('#fileInput');
+        
+        if ($dropZone.length === 0 || $fileInput.length === 0) return;
 
-        // Click to browse
-        dropZone.addEventListener('click', () => {
-            fileInput.click();
+        // Mark as initialized
+        dragAndDropInitialized = true;
+
+        // Click to browse - only trigger if click is not on the file input itself
+        $dropZone.on('click', (e) => {
+            // Don't trigger if clicking directly on the file input
+            if ($(e.target).is('input[type="file"]')) {
+                return;
+            }
+            $fileInput.trigger('click');
+        });
+
+        // Prevent file input click from bubbling to dropZone
+        $fileInput.on('click', (e) => {
+            e.stopPropagation();
         });
 
         // Prevent default drag behaviors
-        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-            dropZone.addEventListener(eventName, (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-            });
+        $dropZone.on('dragenter dragover dragleave drop', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
         });
 
         // Highlight drop zone when item is dragged over it
-        ['dragenter', 'dragover'].forEach(eventName => {
-            dropZone.addEventListener(eventName, () => {
-                dropZone.classList.add('drag-over');
-            });
+        $dropZone.on('dragenter dragover', () => {
+            $dropZone.addClass('drag-over');
         });
 
-        ['dragleave', 'drop'].forEach(eventName => {
-            dropZone.addEventListener(eventName, () => {
-                dropZone.classList.remove('drag-over');
-            });
+        $dropZone.on('dragleave drop', () => {
+            $dropZone.removeClass('drag-over');
         });
 
         // Handle dropped files
-        dropZone.addEventListener('drop', (e) => {
-            const dt = e.dataTransfer;
+        $dropZone.on('drop', (e) => {
+            const dt = (e.originalEvent as DragEvent).dataTransfer;
             if (dt && dt.files) {
                 handleFiles(dt.files);
             }
         });
 
-        // Handle file input change
-        fileInput.addEventListener('change', (e) => {
+        // Handle file input change - clear input after handling to prevent duplicate events
+        $fileInput.on('change', (e) => {
             const target = e.target as HTMLInputElement;
-            if (target.files) {
-                handleFiles(target.files);
+            if (target.files && target.files.length > 0) {
+                const files = target.files; // Store files before clearing
+                // Clear input to prevent duplicate events if user selects same file again
+                target.value = '';
+                handleFiles(files);
             }
         });
     }
 
-    // Encrypt file using wallet signature
-    async function encryptFile(file: File, userAddress: string): Promise<Blob> {
-        const keplr = getKeplr();
-        if (!keplr || !keplr.signArbitrary) {
-            throw new Error('Keplr signArbitrary not available');
-        }
 
+    // Encrypt file using AES-256-GCM with ECIES key derivation
+    async function encryptFile(file: File, userAddress: string): Promise<Blob> {
         // Read file as ArrayBuffer
         const fileData = await file.arrayBuffer();
         
-        // Create a message to sign (using file hash for uniqueness)
-        const fileHash = await calculateMerkleRoot(fileData);
-        const messageToSign = `File encryption: ${fileHash}`;
+        // Derive ECIES private key from wallet signature
+        const eciesKeyMaterial = await deriveECIESPrivateKey(userAddress);
         
-        // Request signature from Keplr
-        const signatureResult = await keplr.signArbitrary(CHAIN_ID, userAddress, messageToSign);
-        
-        // Derive encryption key from signature
-        const signatureBytes = Uint8Array.from(atob(signatureResult.signature), c => c.charCodeAt(0));
-        const keyMaterial = await crypto.subtle.importKey(
-            'raw',
-            signatureBytes.slice(0, 32), // Use first 32 bytes
-            'PBKDF2',
-            false,
-            ['deriveBits', 'deriveKey']
-        );
-        
-        // Derive AES key
-        const key = await crypto.subtle.deriveKey(
+        // Derive AES-256-GCM key from ECIES private key material
+        const aesKey = await crypto.subtle.deriveKey(
             {
                 name: 'PBKDF2',
-                salt: new Uint8Array(0),
+                salt: new Uint8Array(0), // No salt for deterministic key
                 iterations: 10000,
                 hash: 'SHA-256'
             },
-            keyMaterial,
-            { name: 'AES-CBC', length: 256 },
+            eciesKeyMaterial,
+            { name: 'AES-GCM', length: 256 },
             false,
             ['encrypt']
         );
         
-        // Generate IV
-        const iv = crypto.getRandomValues(new Uint8Array(16));
+        // Generate IV (12 bytes for AES-GCM)
+        const iv = crypto.getRandomValues(new Uint8Array(12));
         
-        // Encrypt file data
+        // Encrypt file data with AES-256-GCM (includes authentication tag)
         const encryptedData = await crypto.subtle.encrypt(
-            { name: 'AES-CBC', iv: iv },
-            key,
+            { 
+                name: 'AES-GCM',
+                iv: iv,
+                tagLength: 128 // 128-bit authentication tag
+            },
+            aesKey,
             fileData
         );
         
-        // Combine IV and encrypted data
-        const combined = new Uint8Array(iv.length + encryptedData.byteLength);
+        // AES-GCM output format: encrypted data + authentication tag (16 bytes)
+        // Combine IV (12 bytes) + encrypted data + tag (16 bytes)
+        const encryptedArray = new Uint8Array(encryptedData);
+        const combined = new Uint8Array(iv.length + encryptedArray.length);
         combined.set(iv, 0);
-        combined.set(new Uint8Array(encryptedData), iv.length);
+        combined.set(encryptedArray, iv.length);
         
         return new Blob([combined]);
     }
@@ -177,10 +190,10 @@ export namespace Dashboard {
 
     // Show buy storage form
     function showBuyStorageForm(): void {
-        const contentArea = document.getElementById('contentArea');
-        if (!contentArea) return;
+        const $contentArea = $('#contentArea');
+        if ($contentArea.length === 0) return;
 
-        contentArea.innerHTML = `
+        $contentArea.html(`
             <div class="card">
                 <div class="card-header">
                     <h5 class="mb-0">Buy Storage</h5>
@@ -212,40 +225,29 @@ export namespace Dashboard {
                     </form>
                 </div>
             </div>
-        `;
+        `);
 
         // Handle form submission
-        const form = document.getElementById('buyStorageForm') as HTMLFormElement;
-        if (form) {
-            form.addEventListener('submit', async (e) => {
-                e.preventDefault();
-                await handleBuyStorageSubmit();
-            });
-        }
+        $('#buyStorageForm').on('submit', async (e) => {
+            e.preventDefault();
+            await handleBuyStorageSubmit();
+        });
     }
 
     // Handle buy storage form submission
     async function handleBuyStorageSubmit(): Promise<void> {
-        const contentArea = document.getElementById('contentArea');
-        const submitBtn = document.getElementById('submitBuyStorage') as HTMLButtonElement;
-        const btnText = document.getElementById('buyStorageBtnText') as HTMLSpanElement;
-        const spinner = document.getElementById('buyStorageSpinner') as HTMLSpanElement;
+        const $contentArea = $('#contentArea');
+        const $submitBtn = $('#submitBuyStorage');
+        const $btnText = $('#buyStorageBtnText');
+        const $spinner = $('#buyStorageSpinner');
 
-        if (!contentArea || !submitBtn) return;
+        if ($contentArea.length === 0 || $submitBtn.length === 0) return;
 
         try {
             // Get form values
-            const storageBytesInput = document.getElementById('storageBytes') as HTMLInputElement;
-            const durationDaysInput = document.getElementById('durationDays') as HTMLInputElement;
-            const paymentInput = document.getElementById('payment') as HTMLInputElement;
-
-            if (!storageBytesInput || !durationDaysInput || !paymentInput) {
-                throw new Error('Form inputs not found');
-            }
-
-            const storageBytes = parseInt(storageBytesInput.value);
-            const durationDays = parseInt(durationDaysInput.value);
-            const payment = paymentInput.value.trim();
+            const storageBytes = parseInt($('#storageBytes').val() as string);
+            const durationDays = parseInt($('#durationDays').val() as string);
+            const payment = ($('#payment').val() as string).trim();
 
             // Validate inputs
             if (isNaN(storageBytes) || storageBytes <= 0) {
@@ -259,15 +261,15 @@ export namespace Dashboard {
             }
 
             // Show loading state
-            submitBtn.disabled = true;
-            spinner.classList.remove('d-none');
-            btnText.textContent = 'Processing...';
+            $submitBtn.prop('disabled', true);
+            $spinner.removeClass('d-none');
+            $btnText.text('Processing...');
 
             // Execute buy storage transaction
             const txHash = await buyStorage(storageBytes, durationDays, payment);
 
             // Show success
-            contentArea.innerHTML = `
+            $contentArea.html(`
                 <div class="alert alert-success" role="alert">
                     <h5 class="alert-heading">Storage Purchase Successful!</h5>
                     <p><strong>Transaction Hash:</strong> <code>${txHash}</code></p>
@@ -275,27 +277,23 @@ export namespace Dashboard {
                     <p><strong>Duration:</strong> ${durationDays} days</p>
                     <p><strong>Payment:</strong> ${payment}</p>
                 </div>
-            `;
+            `);
 
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Buy storage failed';
             console.error('Buy storage error:', error);
             
-            if (contentArea) {
-                contentArea.innerHTML = `
-                    <div class="alert alert-danger" role="alert">
-                        <h5 class="alert-heading">Purchase Failed</h5>
-                        <p>${errorMessage}</p>
-                        <button class="btn btn-secondary mt-2" onclick="location.reload()">Try Again</button>
-                    </div>
-                `;
-            }
+            $contentArea.html(`
+                <div class="alert alert-danger" role="alert">
+                    <h5 class="alert-heading">Purchase Failed</h5>
+                    <p>${errorMessage}</p>
+                    <button class="btn btn-secondary mt-2" onclick="location.reload()">Try Again</button>
+                </div>
+            `);
         } finally {
-            if (submitBtn) {
-                submitBtn.disabled = false;
-                spinner.classList.add('d-none');
-                btnText.textContent = 'Buy Storage';
-            }
+            $submitBtn.prop('disabled', false);
+            $spinner.addClass('d-none');
+            $btnText.text('Buy Storage');
         }
     }
 
@@ -390,49 +388,56 @@ export namespace Dashboard {
 
     // Main upload file function
     async function uploadFile(file: File): Promise<void> {
-        const contentArea = document.getElementById('contentArea');
-        const dropZone = document.getElementById('dropZone');
+        // Prevent concurrent uploads
+        if (isUploading) {
+            console.warn('Upload already in progress, ignoring duplicate request');
+            return;
+        }
+
+        const $contentArea = $('#contentArea');
+        const $dropZone = $('#dropZone');
         
-        if (!contentArea) return;
+        if ($contentArea.length === 0) return;
+
+        // Set uploading flag
+        isUploading = true;
 
         // Show processing state
-        if (dropZone) {
-            dropZone.style.opacity = '0.5';
-            dropZone.style.pointerEvents = 'none';
-        }
+        $dropZone.css({ opacity: '0.5', pointerEvents: 'none' });
 
         try {
             // Step 1: Connect to Keplr
-            contentArea.innerHTML = '<div class="text-center"><div class="spinner-border text-primary"></div><p class="mt-2">Connecting to wallet...</p></div>';
+            $contentArea.html('<div class="text-center"><div class="spinner-border text-primary"></div><p class="mt-2">Connecting to wallet...</p></div>');
             const keplr = getKeplr();
             if (!keplr) {
                 throw new Error('Keplr not available');
             }
 
             await keplr.enable(CHAIN_ID);
-            const offlineSigner = keplr.getOfflineSigner(CHAIN_ID);
-            const accounts = await offlineSigner.getAccounts();
-            const userAddress = accounts[0].address;
+            // Get wallet address - use the same method as wallet connection (bech32Address)
+            // This ensures we use the same address format that was used to cache the ECIES key
+            const key = await (keplr as any).getKey(CHAIN_ID);
+            const userAddress = key.bech32Address;
 
             // Step 2: Calculate original file hash (needed for decryption later)
-            contentArea.innerHTML = '<div class="text-center"><div class="spinner-border text-primary"></div><p class="mt-2">Calculating file hash...</p></div>';
+            $contentArea.html('<div class="text-center"><div class="spinner-border text-primary"></div><p class="mt-2">Calculating file hash...</p></div>');
             const fileData = await file.arrayBuffer();
             const originalFileHash = await calculateMerkleRoot(fileData);
 
             // Step 3: Encrypt file
-            contentArea.innerHTML = '<div class="text-center"><div class="spinner-border text-primary"></div><p class="mt-2">Encrypting file...</p></div>';
+            $contentArea.html('<div class="text-center"><div class="spinner-border text-primary"></div><p class="mt-2">Encrypting file...</p></div>');
             const encryptedFile = await encryptFile(file, userAddress);
 
             // Step 4: Calculate Merkle root from encrypted file data
             // The storage provider calculates the hash from the encrypted file it receives,
             // so we must match that by calculating from the encrypted data
-            contentArea.innerHTML = '<div class="text-center"><div class="spinner-border text-primary"></div><p class="mt-2">Calculating encrypted file hash...</p></div>';
+            $contentArea.html('<div class="text-center"><div class="spinner-border text-primary"></div><p class="mt-2">Calculating encrypted file hash...</p></div>');
             const encryptedData = await encryptedFile.arrayBuffer();
             const merkleRoot = await calculateMerkleRoot(encryptedData);
 
             // Step 5: Post file to blockchain (providers will be returned in the response)
             // Include original file hash in metadata for decryption
-            contentArea.innerHTML = '<div class="text-center"><div class="spinner-border text-primary"></div><p class="mt-2">Posting transaction to blockchain...</p></div>';
+            $contentArea.html('<div class="text-center"><div class="spinner-border text-primary"></div><p class="mt-2">Posting transaction to blockchain...</p></div>');
             const expirationTime = Math.floor(Date.now() / 1000) + 86400 * 30; // 30 days
             const metadata = {
                 name: file.name,
@@ -453,7 +458,7 @@ export namespace Dashboard {
                 console.log('Providers received:', postFileResult.providers);
                 console.log('Primary provider index:', postFileResult.primaryProviderIndex);
                 
-                contentArea.innerHTML = '<div class="text-center"><div class="spinner-border text-primary"></div><p class="mt-2">Uploading to storage provider...</p></div>';
+                $contentArea.html('<div class="text-center"><div class="spinner-border text-primary"></div><p class="mt-2">Uploading to storage provider...</p></div>');
                 
                 // Use primary provider index if available, otherwise use first provider
                 const providerIndex = postFileResult.primaryProviderIndex >= 0 
@@ -474,7 +479,7 @@ export namespace Dashboard {
                     merkleRoot, 
                     userAddress,
                     expirationTime,
-                    { name: file.name, content_type: file.type || 'application/octet-stream' }
+                    metadata
                 );
                 
                 console.log('Upload to storage provider completed successfully');
@@ -484,7 +489,7 @@ export namespace Dashboard {
             }
 
             // Success
-            contentArea.innerHTML = `
+            $contentArea.html(`
                 <div class="alert alert-success" role="alert">
                     <h5 class="alert-heading">Upload Successful!</h5>
                     <p><strong>File:</strong> ${file.name}</p>
@@ -495,22 +500,25 @@ export namespace Dashboard {
                         : '<p class="text-warning mb-0"><strong>Note:</strong> No storage providers assigned yet. File may be in pending queue.</p>'
                     }
                 </div>
-            `;
+            `);
 
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'File upload failed';
             console.error('Upload error:', error);
-            contentArea.innerHTML = `
+            $contentArea.html(`
                 <div class="alert alert-danger" role="alert">
                     <h5 class="alert-heading">Upload Failed</h5>
                     <p>${errorMessage}</p>
                 </div>
-            `;
+            `);
         } finally {
-            if (dropZone) {
-                dropZone.style.opacity = '1';
-                dropZone.style.pointerEvents = 'auto';
-            }
+            // Reset uploading flag
+            isUploading = false;
+            
+            // Clear file input value to allow re-uploading the same file
+            $('#fileInput').val('');
+            
+            $dropZone.css({ opacity: '1', pointerEvents: 'auto' });
         }
     }
 
@@ -526,60 +534,75 @@ export namespace Dashboard {
     // Initialize dashboard
     export function init() {
         // Disconnect button
-        const disconnectBtn = document.getElementById('disconnectBtn');
-        if (disconnectBtn) {
-            disconnectBtn.addEventListener('click', disconnectWallet);
-        }
+        $('#disconnectBtn').on('click', disconnectWallet);
 
         // Initialize drag and drop
         initDragAndDrop();
 
-        // Buy Storage button
-        const buyStorageBtn = document.getElementById('buyStorageBtn');
-        if (buyStorageBtn) {
-            buyStorageBtn.addEventListener('click', async (e) => {
-                e.preventDefault();
-                handleMenuClick(buyStorageBtn);
-                showBuyStorageForm();
-            });
-        }
-
-        // View Files button
-        const viewFilesBtn = document.getElementById('viewFilesBtn');
-        if (viewFilesBtn) {
-            viewFilesBtn.addEventListener('click', async (e) => {
-                e.preventDefault();
-                handleMenuClick(viewFilesBtn);
-                
-                // Get wallet address from sessionStorage
+        // Initialize ECIES key cache if wallet is connected
+        // This ensures the cache is ready before any file operations
+        // Do this synchronously before setting up event listeners
+        const initializeECIESKey = async () => {
+            try {
                 const walletAddress = sessionStorage.getItem('walletAddress');
                 if (walletAddress) {
-                    await fetchFiles(walletAddress);
-                } else {
-                    const contentArea = document.getElementById('contentArea');
-                    if (contentArea) {
-                        contentArea.innerHTML = `
-                            <div class="alert alert-warning" role="alert">
-                                <h5 class="alert-heading">Warning</h5>
-                                <p>Wallet address not found. Please reconnect your wallet.</p>
-                            </div>
-                        `;
+                    const keplr = getKeplr();
+                    if (keplr) {
+                        await keplr.enable(CHAIN_ID);
+                        // Pre-initialize ECIES key material (will use cache if already exists)
+                        await deriveECIESPrivateKey(walletAddress);
+                        console.log('ECIES key material initialized on dashboard load');
                     }
                 }
-            });
-        }
+            } catch (error) {
+                console.warn('Failed to initialize ECIES key on dashboard load:', error);
+                // Don't throw - this is optional, will be initialized on first use
+            }
+        };
+        
+        // Start initialization immediately (don't await, but it will cache before first use)
+        initializeECIESKey();
 
-        // Check if user came from wallet connection (has wallet info in sessionStorage)
+        // Buy Storage button
+        $('#buyStorageBtn').on('click', async (e) => {
+            e.preventDefault();
+            handleMenuClick(e.currentTarget);
+            showBuyStorageForm();
+        });
+
+        // View Files button
+        $('#viewFilesBtn').on('click', async (e) => {
+            e.preventDefault();
+            handleMenuClick(e.currentTarget);
+            
+            // Get wallet address from sessionStorage
+            const walletAddress = sessionStorage.getItem('walletAddress');
+            if (walletAddress) {
+                await fetchFiles(walletAddress);
+            } else {
+                $('#contentArea').html(`
+                    <div class="alert alert-warning" role="alert">
+                        <h5 class="alert-heading">Warning</h5>
+                        <p>Wallet address not found. Please reconnect your wallet.</p>
+                    </div>
+                `);
+            }
+        });
+
+        // Check if user has wallet info in sessionStorage
         const walletInfo = sessionStorage.getItem('walletConnected');
         if (!walletInfo) {
-            // If no wallet info, redirect back to home
-            window.location.href = 'index.html';
+            // If no wallet info, switch to wallet connection view
+            import('./app').then(({ switchToWalletConnection }) => {
+                switchToWalletConnection();
+            });
+            return;
         }
     }
 }
 
 // Initialize on page load
-document.addEventListener('DOMContentLoaded', () => {
+$(document).ready(() => {
     Dashboard.init();
 });
 
