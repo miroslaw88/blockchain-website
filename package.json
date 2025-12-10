@@ -1,0 +1,28 @@
+{
+  "name": "cosmos-keplr-wallet-connector",
+  "version": "1.0.0",
+  "description": "Simple website to connect Keplr wallet for Cosmos blockchain",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "build:ts": "tsc",
+    "watch": "tsc --watch"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.5",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.0",
+    "vite-plugin-node-polyfills": "^0.17.0"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.10.1",
+    "@cosmjs/proto-signing": "^0.32.4",
+    "@cosmjs/stargate": "^0.32.4",
+    "@cosmjs/tendermint-rpc": "^0.32.2",
+    "@keplr-wallet/types": "^0.12.0",
+    "buffer": "^6.0.3",
+    "crypto-browserify": "^3.12.0",
+    "stream-browserify": "^3.0.0"
+  }
+}
