@@ -414,26 +414,37 @@ export namespace Dashboard {
             const accounts = await offlineSigner.getAccounts();
             const userAddress = accounts[0].address;
 
-            // Step 2: Encrypt file first
+            // Step 2: Calculate original file hash (needed for decryption later)
+            contentArea.innerHTML = '<div class="text-center"><div class="spinner-border text-primary"></div><p class="mt-2">Calculating file hash...</p></div>';
+            const fileData = await file.arrayBuffer();
+            const originalFileHash = await calculateMerkleRoot(fileData);
+
+            // Step 3: Encrypt file
             contentArea.innerHTML = '<div class="text-center"><div class="spinner-border text-primary"></div><p class="mt-2">Encrypting file...</p></div>';
             const encryptedFile = await encryptFile(file, userAddress);
 
-            // Step 3: Calculate Merkle root from encrypted file data
+            // Step 4: Calculate Merkle root from encrypted file data
             // The storage provider calculates the hash from the encrypted file it receives,
             // so we must match that by calculating from the encrypted data
-            contentArea.innerHTML = '<div class="text-center"><div class="spinner-border text-primary"></div><p class="mt-2">Calculating file hash...</p></div>';
+            contentArea.innerHTML = '<div class="text-center"><div class="spinner-border text-primary"></div><p class="mt-2">Calculating encrypted file hash...</p></div>';
             const encryptedData = await encryptedFile.arrayBuffer();
             const merkleRoot = await calculateMerkleRoot(encryptedData);
 
-            // Step 4: Post file to blockchain (providers will be returned in the response)
+            // Step 5: Post file to blockchain (providers will be returned in the response)
+            // Include original file hash in metadata for decryption
             contentArea.innerHTML = '<div class="text-center"><div class="spinner-border text-primary"></div><p class="mt-2">Posting transaction to blockchain...</p></div>';
             const expirationTime = Math.floor(Date.now() / 1000) + 86400 * 30; // 30 days
+            const metadata = {
+                name: file.name,
+                content_type: file.type || 'application/octet-stream',
+                original_file_hash: originalFileHash // Store original hash for decryption
+            };
             const postFileResult = await postFile(
                 merkleRoot,
                 encryptedFile.size,
                 expirationTime,
                 3,
-                { name: file.name, content_type: file.type || 'application/octet-stream' }
+                metadata
             );
 
             // Step 5: Upload file to storage provider (use providers from transaction response)
