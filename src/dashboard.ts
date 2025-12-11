@@ -115,10 +115,20 @@ export namespace Dashboard {
     }
 
 
-    // Encrypt file using AES-256-GCM with ECIES key derivation
-    async function encryptFile(file: File, userAddress: string): Promise<Blob> {
-        // Read file as ArrayBuffer
-        const fileData = await file.arrayBuffer();
+    // Hash filename (like Jackal protocol)
+    async function hashFilename(filename: string): Promise<string> {
+        // Hash filename + timestamp (like Jackal: fileMeta.name + Date.now().toString())
+        const timestamp = Date.now().toString();
+        const dataToHash = filename + timestamp;
+        const hashBuffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(dataToHash));
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    // Encrypt file using chunked AES-256-GCM with ECIES key derivation (Jackal-style)
+    // Returns array of encrypted chunks (each chunk is uploaded individually)
+    async function encryptFile(file: File, userAddress: string): Promise<Blob[]> {
+        const encryptionChunkSize = 32 * 1024 * 1024; // 32MB chunks (like Jackal)
         
         // Derive ECIES private key from wallet signature
         const eciesKeyMaterial = await deriveECIESPrivateKey(userAddress);
@@ -137,28 +147,47 @@ export namespace Dashboard {
             ['encrypt']
         );
         
-        // Generate IV (12 bytes for AES-GCM)
-        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const encryptedChunks: Blob[] = [];
         
-        // Encrypt file data with AES-256-GCM (includes authentication tag)
-        const encryptedData = await crypto.subtle.encrypt(
-            { 
-                name: 'AES-GCM',
-                iv: iv,
-                tagLength: 128 // 128-bit authentication tag
-            },
-            aesKey,
-            fileData
-        );
+        // Encrypt file in chunks
+        for (let i = 0; i < file.size; i += encryptionChunkSize) {
+            const chunkBlob = file.slice(i, i + encryptionChunkSize);
+            const chunkData = await chunkBlob.arrayBuffer();
+            
+            // Generate IV (12 bytes for AES-GCM) for each chunk
+            const iv = crypto.getRandomValues(new Uint8Array(12));
+            
+            // Encrypt chunk with AES-256-GCM (includes authentication tag)
+            const encryptedChunkData = await crypto.subtle.encrypt(
+                { 
+                    name: 'AES-GCM',
+                    iv: iv,
+                    tagLength: 128 // 128-bit authentication tag
+                },
+                aesKey,
+                chunkData
+            );
+            
+            // Format: [8-byte size header][12-byte IV][encrypted chunk + 16-byte tag]
+            // Size header includes: IV (12) + encrypted data + tag (16)
+            const encryptedChunkArray = new Uint8Array(encryptedChunkData);
+            const chunkSize = iv.length + encryptedChunkArray.length; // 12 + encrypted + 16
+            
+            // Create size header (8 bytes, padded with zeros)
+            const sizeHeader = chunkSize.toString().padStart(8, '0');
+            const sizeHeaderBytes = new TextEncoder().encode(sizeHeader);
+            
+            // Combine: size header + IV + encrypted chunk
+            const combinedChunk = new Uint8Array(sizeHeaderBytes.length + chunkSize);
+            combinedChunk.set(sizeHeaderBytes, 0);
+            combinedChunk.set(iv, sizeHeaderBytes.length);
+            combinedChunk.set(encryptedChunkArray, sizeHeaderBytes.length + iv.length);
+            
+            encryptedChunks.push(new Blob([combinedChunk]));
+        }
         
-        // AES-GCM output format: encrypted data + authentication tag (16 bytes)
-        // Combine IV (12 bytes) + encrypted data + tag (16 bytes)
-        const encryptedArray = new Uint8Array(encryptedData);
-        const combined = new Uint8Array(iv.length + encryptedArray.length);
-        combined.set(iv, 0);
-        combined.set(encryptedArray, iv.length);
-        
-        return new Blob([combined]);
+        // Return array of encrypted chunks (each will be uploaded individually)
+        return encryptedChunks;
     }
 
     // Calculate Merkle root (SHA256 hash)
@@ -298,59 +327,37 @@ export namespace Dashboard {
     }
 
 
-    // Upload file to storage provider
-    async function uploadToStorageProvider(
+    // Upload chunk to storage provider
+    async function uploadChunkToStorageProvider(
         providerAddress: string,
-        encryptedFile: Blob,
-        merkleRoot: string,
+        encryptedChunk: Blob,
+        chunkIndex: number,
+        totalChunks: number,
+        combinedMerkleRoot: string,
+        chunkMerkleRoot: string,
         owner: string,
         expirationTime: number,
         metadata: { name: string; content_type: string }
     ): Promise<void> {
-        console.log('=== uploadToStorageProvider called ===');
+        console.log(`=== Uploading chunk ${chunkIndex + 1}/${totalChunks} ===`);
         console.log('Provider address:', providerAddress);
-        console.log('Encrypted file:', {
-            size: encryptedFile.size,
-            type: encryptedFile.type
-        });
-        console.log('Merkle root:', merkleRoot);
+        console.log('Chunk size:', encryptedChunk.size, 'bytes');
+        console.log('Chunk merkle root:', chunkMerkleRoot);
+        console.log('Combined merkle root:', combinedMerkleRoot);
         console.log('Owner:', owner);
-        console.log('Expiration time:', expirationTime);
-        console.log('Metadata:', metadata);
         
         const formData = new FormData();
-        formData.append('file', encryptedFile, 'encrypted.bin');
-        formData.append('merkle_root', merkleRoot);
+        formData.append('file', encryptedChunk, `chunk_${chunkIndex}.bin`);
+        formData.append('merkle_root', chunkMerkleRoot); // Send individual chunk's merkle root
+        formData.append('combined_merkle_root', combinedMerkleRoot); // Also send combined merkle root for file identification
         formData.append('owner', owner);
         formData.append('expiration_time', expirationTime.toString());
+        formData.append('chunk_index', chunkIndex.toString());
+        formData.append('total_chunks', totalChunks.toString());
         formData.append('metadata', JSON.stringify(metadata));
         
-        console.log('FormData created with file and merkle_root');
-        // Log FormData entries (FormData.entries() may not be typed in some TS versions)
-        const formDataEntries: Array<{ key: string; value: string }> = [];
-        try {
-            // Use for...of loop to iterate FormData entries
-            for (const [key, value] of formData as any) {
-                formDataEntries.push({
-                    key,
-                    value: value instanceof File ? `File(${value.name}, ${value.size} bytes)` : String(value)
-                });
-            }
-        } catch (e) {
-            // Fallback if entries() is not available
-            formDataEntries.push(
-                { key: 'file', value: 'encrypted.bin' }, 
-                { key: 'merkle_root', value: merkleRoot },
-                { key: 'owner', value: owner },
-                { key: 'expiration_time', value: expirationTime.toString() },
-                { key: 'metadata', value: JSON.stringify(metadata) }
-            );
-        }
-        console.log('FormData entries:', formDataEntries);
-
         const uploadUrl = `https://storage.datavault.space/api/v1/files/upload`;
         console.log('Upload URL:', uploadUrl);
-        console.log('Sending fetch request...');
 
         try {
             const response = await fetch(uploadUrl, {
@@ -358,33 +365,22 @@ export namespace Dashboard {
                 body: formData
             });
 
-            const headersObj: Record<string, string> = {};
-            response.headers.forEach((value, key) => {
-                headersObj[key] = value;
-            });
-            console.log('Fetch response received:', {
-                status: response.status,
-                statusText: response.statusText,
-                ok: response.ok,
-                headers: headersObj
-            });
-
             if (!response.ok) {
                 const errorText = await response.text();
-                console.error('Upload failed - Response text:', errorText);
-                throw new Error(`Upload to storage provider failed: ${response.status} ${errorText}`);
+                console.error(`Chunk ${chunkIndex + 1} upload failed - Response text:`, errorText);
+                throw new Error(`Chunk ${chunkIndex + 1} upload failed: ${response.status} ${errorText}`);
             }
             
             const responseText = await response.text();
-            console.log('Upload successful - Response:', responseText);
+            console.log(`Chunk ${chunkIndex + 1}/${totalChunks} uploaded successfully`);
         } catch (error) {
-            console.error('=== Upload Error ===');
+            console.error(`=== Chunk ${chunkIndex + 1} Upload Error ===`);
             console.error('Error type:', error instanceof Error ? error.constructor.name : typeof error);
             console.error('Error message:', error instanceof Error ? error.message : String(error));
-            console.error('Full error:', error);
             throw error;
         }
     }
+
 
     // Main upload file function
     async function uploadFile(file: File): Promise<void> {
@@ -424,41 +420,65 @@ export namespace Dashboard {
             const fileData = await file.arrayBuffer();
             const originalFileHash = await calculateMerkleRoot(fileData);
 
-            // Step 3: Encrypt file
+            // Step 3: Encrypt file (returns array of encrypted chunks)
             $contentArea.html('<div class="text-center"><div class="spinner-border text-primary"></div><p class="mt-2">Encrypting file...</p></div>');
-            const encryptedFile = await encryptFile(file, userAddress);
+            const encryptedChunks = await encryptFile(file, userAddress);
 
-            // Step 4: Calculate Merkle root from encrypted file data
-            // The storage provider calculates the hash from the encrypted file it receives,
-            // so we must match that by calculating from the encrypted data
+            // Step 4: Calculate Merkle roots
+            // - Individual merkle root for each chunk (for provider validation)
+            // - Combined merkle root from all chunks (for blockchain transaction)
             $contentArea.html('<div class="text-center"><div class="spinner-border text-primary"></div><p class="mt-2">Calculating encrypted file hash...</p></div>');
-            const encryptedData = await encryptedFile.arrayBuffer();
-            const merkleRoot = await calculateMerkleRoot(encryptedData);
+            
+            // Calculate merkle root for each chunk
+            const chunkMerkleRoots: string[] = [];
+            for (const chunk of encryptedChunks) {
+                const chunkData = await chunk.arrayBuffer();
+                const chunkMerkleRoot = await calculateMerkleRoot(chunkData);
+                chunkMerkleRoots.push(chunkMerkleRoot);
+            }
+            
+            // Calculate combined merkle root (for blockchain transaction)
+            const combinedChunksArray = new Uint8Array(
+                encryptedChunks.reduce((total, chunk) => total + chunk.size, 0)
+            );
+            let offset = 0;
+            for (const chunk of encryptedChunks) {
+                const chunkData = await chunk.arrayBuffer();
+                combinedChunksArray.set(new Uint8Array(chunkData), offset);
+                offset += chunkData.byteLength;
+            }
+            const combinedMerkleRoot = await calculateMerkleRoot(combinedChunksArray.buffer);
+            
+            // Calculate total encrypted size
+            const totalEncryptedSize = encryptedChunks.reduce((sum, chunk) => sum + chunk.size, 0);
 
-            // Step 5: Post file to blockchain (providers will be returned in the response)
-            // Include original file hash in metadata for decryption
+            // Step 5: Hash filename (like Jackal protocol)
+            $contentArea.html('<div class="text-center"><div class="spinner-border text-primary"></div><p class="mt-2">Processing filename...</p></div>');
+            const hashedFileName = await hashFilename(file.name);
+            
+            // Step 6: Post file to blockchain (providers will be returned in the response)
+            // Include original file hash and original filename in metadata for decryption
             $contentArea.html('<div class="text-center"><div class="spinner-border text-primary"></div><p class="mt-2">Posting transaction to blockchain...</p></div>');
             const expirationTime = Math.floor(Date.now() / 1000) + 86400 * 30; // 30 days
             const metadata = {
-                name: file.name,
+                name: hashedFileName, // Store hashed filename (like Jackal)
+                original_name: file.name, // Store original filename for display/download
                 content_type: file.type || 'application/octet-stream',
                 original_file_hash: originalFileHash // Store original hash for decryption
             };
             const postFileResult = await postFile(
-                merkleRoot,
-                encryptedFile.size,
+                combinedMerkleRoot,
+                totalEncryptedSize,
                 expirationTime,
                 3,
                 metadata
             );
 
-            // Step 5: Upload file to storage provider (use providers from transaction response)
+            // Step 7: Upload chunks to storage provider (use providers from transaction response)
             if (postFileResult.providers && postFileResult.providers.length > 0) {
                 console.log('=== Storage Provider Upload ===');
                 console.log('Providers received:', postFileResult.providers);
                 console.log('Primary provider index:', postFileResult.primaryProviderIndex);
-                
-                $contentArea.html('<div class="text-center"><div class="spinner-border text-primary"></div><p class="mt-2">Uploading to storage provider...</p></div>');
                 
                 // Use primary provider index if available, otherwise use first provider
                 const providerIndex = postFileResult.primaryProviderIndex >= 0 
@@ -469,18 +489,48 @@ export namespace Dashboard {
                 console.log('Selected provider index:', providerIndex);
                 console.log('Selected provider:', provider);
                 console.log('Provider address:', provider.providerAddress);
-                console.log('Encrypted file size:', encryptedFile.size, 'bytes');
-                console.log('Merkle root:', merkleRoot);
-                console.log('Preparing to upload to:', `http://${provider.providerAddress}/api/v1/files/upload`);
+                console.log('Total encrypted size:', totalEncryptedSize, 'bytes');
+                console.log('Number of chunks:', encryptedChunks.length);
+                console.log('Combined merkle root:', combinedMerkleRoot);
+                console.log('Preparing to upload chunks to:', `https://storage.datavault.space/api/v1/files/upload`);
                 
-                await uploadToStorageProvider(
-                    provider.providerAddress, 
-                    encryptedFile, 
-                    merkleRoot, 
-                    userAddress,
-                    expirationTime,
-                    metadata
-                );
+                // Upload chunks with progress updates
+                const totalChunks = encryptedChunks.length;
+                const progressId = 'upload-progress-' + Date.now();
+                
+                // Initial progress display
+                $contentArea.html(`
+                    <div class="text-center">
+                        <div class="spinner-border text-primary"></div>
+                        <p class="mt-2">Uploading to storage provider...</p>
+                        <div class="progress mt-3" style="height: 25px; max-width: 500px; margin: 0 auto;">
+                            <div id="${progressId}" class="progress-bar progress-bar-striped progress-bar-animated" 
+                                 role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                                0%
+                            </div>
+                        </div>
+                    </div>
+                `);
+                
+                for (let i = 0; i < encryptedChunks.length; i++) {
+                    // Update progress bar
+                    const progress = ((i + 1) / totalChunks) * 100;
+                    const $progressBar = $(`#${progressId}`);
+                    $progressBar.css('width', `${progress}%`).attr('aria-valuenow', progress);
+                    $progressBar.text(`${Math.round(progress)}%`);
+                    
+                    await uploadChunkToStorageProvider(
+                        provider.providerAddress, 
+                        encryptedChunks[i], 
+                        i,
+                        totalChunks,
+                        combinedMerkleRoot, // Combined merkle root for file identification
+                        chunkMerkleRoots[i], // Individual chunk merkle root for validation
+                        userAddress,
+                        expirationTime,
+                        metadata
+                    );
+                }
                 
                 console.log('Upload to storage provider completed successfully');
             } else {
@@ -494,7 +544,7 @@ export namespace Dashboard {
                     <h5 class="alert-heading">Upload Successful!</h5>
                     <p><strong>File:</strong> ${file.name}</p>
                     <p><strong>Transaction Hash:</strong> <code>${postFileResult.transactionHash}</code></p>
-                    <p><strong>Merkle Root:</strong> <code>${merkleRoot}</code></p>
+                    <p><strong>Merkle Root:</strong> <code>${combinedMerkleRoot}</code></p>
                     ${postFileResult.providers.length > 0 
                         ? `<p><strong>Storage Providers:</strong> ${postFileResult.providers.length} assigned</p>`
                         : '<p class="text-warning mb-0"><strong>Note:</strong> No storage providers assigned yet. File may be in pending queue.</p>'
@@ -600,9 +650,3 @@ export namespace Dashboard {
         }
     }
 }
-
-// Initialize on page load
-$(document).ready(() => {
-    Dashboard.init();
-});
-

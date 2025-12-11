@@ -50,8 +50,8 @@ export async function deriveECIESPrivateKey(userAddress: string): Promise<Crypto
         throw new Error('Keplr signArbitrary not available');
     }
 
-    // Sign seed message to get signature (similar to "Initiate Jackal Session")
-    const signatureSeed = 'Initiate Jackal Session';
+    // Sign seed message to get signature (similar to "Initiate Storage Session")
+    const signatureSeed = 'Initiate Storage Session';
     console.log('Requesting signature for message:', signatureSeed);
     const signatureResult = await keplr.signArbitrary(CHAIN_ID, userAddress, signatureSeed);
     console.log('Signature received, deriving key material...');

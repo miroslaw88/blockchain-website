@@ -175,9 +175,18 @@
             width: 16px;
             height: 16px;
         }
+        /* Toast container */
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 9999;
+        }
     </style>
 </head>
 <body>
+    <!-- Toast container for notifications -->
+    <div class="toast-container" id="toastContainer"></div>
     <!-- Wallet Connection View -->
     <div id="walletConnectionView">
         <div class="wallet-card">
