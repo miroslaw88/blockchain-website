@@ -382,6 +382,105 @@ export namespace Dashboard {
     }
 
 
+    // Helper function to add uploading file entry to files list
+    function addUploadingFileEntry(file: File, uploadId: string): void {
+        const $contentArea = $('#contentArea');
+        const $filesRow = $contentArea.find('.row');
+        
+        // Check if files list is displayed
+        if ($filesRow.length === 0) {
+            // Files list not displayed, create it
+            $contentArea.html(`
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">Files</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            ${createUploadingFileHTML(file, uploadId, 0)}
+                        </div>
+                    </div>
+                </div>
+            `);
+        } else {
+            // Add to existing files list
+            $filesRow.append(createUploadingFileHTML(file, uploadId, 0));
+        }
+    }
+
+    // Helper function to create HTML for uploading file entry
+    function createUploadingFileHTML(file: File, uploadId: string, progress: number): string {
+        const contentType = file.type || 'application/octet-stream';
+        const fileSize = formatFileSize(file.size);
+        
+        // Use a simple file icon
+        const fileIcon = '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>';
+        
+        return `
+            <div class="col-md-3 col-sm-4 col-6 mb-4" id="uploading-${uploadId}" style="opacity: 0.6;">
+                <div class="card h-100 file-thumbnail" style="transition: transform 0.2s;">
+                    <div class="card-body text-center p-3">
+                        <div class="file-icon mb-2" style="color: #6c757d;">
+                            ${fileIcon}
+                        </div>
+                        <h6 class="card-title mb-1 text-truncate" style="font-size: 0.9rem;" title="${file.name}">${file.name}</h6>
+                        <p class="text-muted small mb-1">${fileSize}</p>
+                        <div class="mt-2">
+                            <div class="progress" style="height: 20px;">
+                                <div id="upload-progress-${uploadId}" class="progress-bar progress-bar-striped progress-bar-animated" 
+                                     role="progressbar" style="width: ${progress}%" aria-valuenow="${progress}" aria-valuemin="0" aria-valuemax="100">
+                                    ${Math.round(progress)}%
+                                </div>
+                            </div>
+                            <small class="text-muted d-block mt-1" id="upload-status-${uploadId}">Preparing...</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    // Helper function to update uploading file progress
+    function updateUploadingFileProgress(uploadId: string, progress: number, status: string): void {
+        const $progressBar = $(`#upload-progress-${uploadId}`);
+        const $status = $(`#upload-status-${uploadId}`);
+        
+        if ($progressBar.length > 0) {
+            $progressBar.css('width', `${progress}%`).attr('aria-valuenow', progress);
+            $progressBar.text(`${Math.round(progress)}%`);
+        }
+        
+        if ($status.length > 0) {
+            $status.text(status);
+        }
+    }
+
+    // Helper function to convert uploading file to regular file or remove it
+    function finalizeUploadingFile(uploadId: string, success: boolean): void {
+        const $uploadingEntry = $(`#uploading-${uploadId}`);
+        
+        if (success) {
+            // Remove the uploading entry - files list will be refreshed
+            $uploadingEntry.fadeOut(300, () => {
+                $uploadingEntry.remove();
+            });
+        } else {
+            // On error, remove the entry
+            $uploadingEntry.fadeOut(300, () => {
+                $uploadingEntry.remove();
+            });
+        }
+    }
+
+    // Helper function to format file size (duplicate from fetchFiles, but needed here)
+    function formatFileSize(bytes: number): string {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+    }
+
     // Main upload file function
     async function uploadFile(file: File): Promise<void> {
         // Prevent concurrent uploads
@@ -401,9 +500,15 @@ export namespace Dashboard {
         // Show processing state
         $dropZone.css({ opacity: '0.5', pointerEvents: 'none' });
 
+        // Generate unique upload ID
+        const uploadId = 'upload-' + Date.now();
+
         try {
+            // Add uploading file entry to files list
+            addUploadingFileEntry(file, uploadId);
+            updateUploadingFileProgress(uploadId, 0, 'Connecting to wallet...');
+
             // Step 1: Connect to Keplr
-            $contentArea.html('<div class="text-center"><div class="spinner-border text-primary"></div><p class="mt-2">Connecting to wallet...</p></div>');
             const keplr = getKeplr();
             if (!keplr) {
                 throw new Error('Keplr not available');
@@ -416,18 +521,18 @@ export namespace Dashboard {
             const userAddress = key.bech32Address;
 
             // Step 2: Calculate original file hash (needed for decryption later)
-            $contentArea.html('<div class="text-center"><div class="spinner-border text-primary"></div><p class="mt-2">Calculating file hash...</p></div>');
+            updateUploadingFileProgress(uploadId, 5, 'Calculating file hash...');
             const fileData = await file.arrayBuffer();
             const originalFileHash = await calculateMerkleRoot(fileData);
 
             // Step 3: Encrypt file (returns array of encrypted chunks)
-            $contentArea.html('<div class="text-center"><div class="spinner-border text-primary"></div><p class="mt-2">Encrypting file...</p></div>');
+            updateUploadingFileProgress(uploadId, 10, 'Encrypting file...');
             const encryptedChunks = await encryptFile(file, userAddress);
 
             // Step 4: Calculate Merkle roots
             // - Individual merkle root for each chunk (for provider validation)
             // - Combined merkle root from all chunks (for blockchain transaction)
-            $contentArea.html('<div class="text-center"><div class="spinner-border text-primary"></div><p class="mt-2">Calculating encrypted file hash...</p></div>');
+            updateUploadingFileProgress(uploadId, 20, 'Calculating encrypted file hash...');
             
             // Calculate merkle root for each chunk
             const chunkMerkleRoots: string[] = [];
@@ -453,12 +558,12 @@ export namespace Dashboard {
             const totalEncryptedSize = encryptedChunks.reduce((sum, chunk) => sum + chunk.size, 0);
 
             // Step 5: Hash filename (like Jackal protocol)
-            $contentArea.html('<div class="text-center"><div class="spinner-border text-primary"></div><p class="mt-2">Processing filename...</p></div>');
+            updateUploadingFileProgress(uploadId, 30, 'Processing filename...');
             const hashedFileName = await hashFilename(file.name);
-            
+
             // Step 6: Post file to blockchain (providers will be returned in the response)
             // Include original file hash and original filename in metadata for decryption
-            $contentArea.html('<div class="text-center"><div class="spinner-border text-primary"></div><p class="mt-2">Posting transaction to blockchain...</p></div>');
+            updateUploadingFileProgress(uploadId, 40, 'Posting transaction to blockchain...');
             const expirationTime = Math.floor(Date.now() / 1000) + 86400 * 30; // 30 days
             const metadata = {
                 name: hashedFileName, // Store hashed filename (like Jackal)
@@ -496,28 +601,12 @@ export namespace Dashboard {
                 
                 // Upload chunks with progress updates
                 const totalChunks = encryptedChunks.length;
-                const progressId = 'upload-progress-' + Date.now();
-                
-                // Initial progress display
-                $contentArea.html(`
-                    <div class="text-center">
-                        <div class="spinner-border text-primary"></div>
-                        <p class="mt-2">Uploading to storage provider...</p>
-                        <div class="progress mt-3" style="height: 25px; max-width: 500px; margin: 0 auto;">
-                            <div id="${progressId}" class="progress-bar progress-bar-striped progress-bar-animated" 
-                                 role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
-                                0%
-                            </div>
-                        </div>
-                    </div>
-                `);
+                updateUploadingFileProgress(uploadId, 50, 'Uploading to storage provider...');
                 
                 for (let i = 0; i < encryptedChunks.length; i++) {
-                    // Update progress bar
-                    const progress = ((i + 1) / totalChunks) * 100;
-                    const $progressBar = $(`#${progressId}`);
-                    $progressBar.css('width', `${progress}%`).attr('aria-valuenow', progress);
-                    $progressBar.text(`${Math.round(progress)}%`);
+                    // Update progress (50-90% for chunk uploads)
+                    const chunkProgress = 50 + ((i + 1) / totalChunks) * 40;
+                    updateUploadingFileProgress(uploadId, chunkProgress, `Uploading chunk ${i + 1}/${totalChunks}...`);
                     
                     await uploadChunkToStorageProvider(
                         provider.providerAddress, 
@@ -533,34 +622,37 @@ export namespace Dashboard {
                 }
                 
                 console.log('Upload to storage provider completed successfully');
+                updateUploadingFileProgress(uploadId, 95, 'Finalizing...');
             } else {
                 console.warn('No storage providers assigned. File may be added to pending queue.');
                 console.log('PostFileResult:', postFileResult);
             }
 
-            // Success
-            $contentArea.html(`
-                <div class="alert alert-success" role="alert">
-                    <h5 class="alert-heading">Upload Successful!</h5>
-                    <p><strong>File:</strong> ${file.name}</p>
-                    <p><strong>Transaction Hash:</strong> <code>${postFileResult.transactionHash}</code></p>
-                    <p><strong>Merkle Root:</strong> <code>${combinedMerkleRoot}</code></p>
-                    ${postFileResult.providers.length > 0 
-                        ? `<p><strong>Storage Providers:</strong> ${postFileResult.providers.length} assigned</p>`
-                        : '<p class="text-warning mb-0"><strong>Note:</strong> No storage providers assigned yet. File may be in pending queue.</p>'
-                    }
-                </div>
-            `);
+            // Success - update progress to 100% and refresh files list
+            updateUploadingFileProgress(uploadId, 100, 'Complete!');
+            
+            // Remove uploading entry and refresh files list
+            setTimeout(() => {
+                finalizeUploadingFile(uploadId, true);
+                
+                // Refresh files list to show the new file
+                const walletAddress = sessionStorage.getItem('walletAddress');
+                if (walletAddress) {
+                    fetchFiles(walletAddress);
+                }
+            }, 500);
 
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'File upload failed';
             console.error('Upload error:', error);
-            $contentArea.html(`
-                <div class="alert alert-danger" role="alert">
-                    <h5 class="alert-heading">Upload Failed</h5>
-                    <p>${errorMessage}</p>
-                </div>
-            `);
+            
+            // Update uploading entry to show error
+            updateUploadingFileProgress(uploadId, 0, `Error: ${errorMessage}`);
+            
+            // Remove error entry after a delay
+            setTimeout(() => {
+                finalizeUploadingFile(uploadId, false);
+            }, 3000);
         } finally {
             // Reset uploading flag
             isUploading = false;

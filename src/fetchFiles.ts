@@ -78,6 +78,7 @@ async function calculateMerkleRoot(data: ArrayBuffer): Promise<string> {
 async function parseMultipartResponse(
     response: Response, 
     contentType: string,
+    totalChunksFromHeader: number | null,
     progressCallback?: (chunkIndex: number, totalChunks: number) => void
 ): Promise<Blob> {
     // Extract boundary from Content-Type header
@@ -106,10 +107,13 @@ async function parseMultipartResponse(
     let currentChunkIndex: number | null = null;
     let currentChunkData: Uint8Array[] = [];
     let expectedContentLength: number | null = null;
-    let totalChunks: number | null = null;
+    // Use totalChunks from main response header, fallback to Content-Range if not available
+    let totalChunks: number | null = totalChunksFromHeader;
     let inHeaders = true;
     let headerBuffer = '';
     let firstBoundarySkipped = false;
+    
+    console.log('parseMultipartResponse: totalChunks from header =', totalChunks);
     
     try {
         while (true) {
@@ -120,10 +124,16 @@ async function parseMultipartResponse(
                 if (currentChunkData.length > 0 && currentChunkIndex !== null) {
                     const chunkData = concatenateUint8Arrays(currentChunkData);
                     chunks.push({ index: currentChunkIndex, data: chunkData });
-                    console.log(`Parsed chunk ${currentChunkIndex}: ${chunkData.length} bytes`);
+                    console.log(`✓ Parsed chunk ${currentChunkIndex}: ${chunkData.length} bytes (final)`);
                     
                     if (progressCallback && totalChunks !== null) {
+                        console.log(`Calling progress callback: chunk ${currentChunkIndex + 1}/${totalChunks} (final)`);
                         progressCallback(currentChunkIndex, totalChunks);
+                    } else {
+                        console.warn('Progress callback not called (final):', {
+                            hasCallback: !!progressCallback,
+                            totalChunks: totalChunks
+                        });
                     }
                 }
                 break;
@@ -170,22 +180,50 @@ async function parseMultipartResponse(
                     headerBuffer += decoder.decode(buffer.slice(0, headerEndPos));
                     currentPartHeaders = parseHeaders(headerBuffer);
                     
+                    // Log chunk part headers
+                    console.log('=== Chunk Part Headers ===');
+                    console.log('Headers:', currentPartHeaders);
+                    
                     // Extract chunk index and total chunks
                     const chunkIndexHeader = currentPartHeaders['X-Chunk-Index'] || currentPartHeaders['x-chunk-index'];
                     const contentRangeHeader = currentPartHeaders['Content-Range'] || currentPartHeaders['content-range'];
                     
+                    console.log('X-Chunk-Index:', chunkIndexHeader);
+                    console.log('Content-Range:', contentRangeHeader);
+                    
+                    // Get chunk index from X-Chunk-Index or Content-Range
                     if (chunkIndexHeader) {
                         currentChunkIndex = parseInt(chunkIndexHeader, 10);
+                        console.log('Chunk index from X-Chunk-Index:', currentChunkIndex);
                     } else if (contentRangeHeader) {
                         const rangeMatch = contentRangeHeader.match(/chunk\s+(\d+)\/(\d+)/i);
                         if (rangeMatch) {
                             currentChunkIndex = parseInt(rangeMatch[1], 10);
-                            totalChunks = parseInt(rangeMatch[2], 10);
+                            console.log('Chunk index from Content-Range:', currentChunkIndex);
+                        }
+                    }
+                    
+                    // Always try to extract total chunks from Content-Range if not already set
+                    if (totalChunks === null && contentRangeHeader) {
+                        console.log('Attempting to extract total chunks from Content-Range:', contentRangeHeader);
+                        const rangeMatch = contentRangeHeader.match(/chunk\s+\d+\/(\d+)/i);
+                        console.log('Content-Range regex match result:', rangeMatch);
+                        if (rangeMatch) {
+                            totalChunks = parseInt(rangeMatch[1], 10);
+                            console.log('✓ Total chunks extracted from Content-Range:', totalChunks);
+                        } else {
+                            console.warn('Content-Range regex did not match. Pattern: /chunk\\s+\\d+\\/(\\d+)/i');
                         }
                     }
                     
                     if (currentChunkIndex === null) {
                         throw new Error('Could not determine chunk index from headers');
+                    }
+                    
+                    if (totalChunks === null) {
+                        console.warn('Total chunks not available from main header or Content-Range');
+                    } else {
+                        console.log('Total chunks available:', totalChunks);
                     }
                     
                     // Get content length
@@ -213,11 +251,17 @@ async function parseMultipartResponse(
                         if (currentChunkIndex !== null && currentChunkData.length > 0) {
                             const chunkData = concatenateUint8Arrays(currentChunkData);
                             chunks.push({ index: currentChunkIndex, data: chunkData });
-                            console.log(`Parsed chunk ${currentChunkIndex}: ${chunkData.length} bytes`);
+                            console.log(`✓ Parsed chunk ${currentChunkIndex}: ${chunkData.length} bytes`);
                             
                             // Call progress callback
                             if (progressCallback && totalChunks !== null) {
+                                console.log(`Calling progress callback: chunk ${currentChunkIndex + 1}/${totalChunks}`);
                                 progressCallback(currentChunkIndex, totalChunks);
+                            } else {
+                                console.warn('Progress callback not called:', {
+                                    hasCallback: !!progressCallback,
+                                    totalChunks: totalChunks
+                                });
                             }
                         }
                         
@@ -238,11 +282,17 @@ async function parseMultipartResponse(
                         if (currentChunkIndex !== null && currentChunkData.length > 0) {
                             const chunkData = concatenateUint8Arrays(currentChunkData);
                             chunks.push({ index: currentChunkIndex, data: chunkData });
-                            console.log(`Parsed chunk ${currentChunkIndex}: ${chunkData.length} bytes`);
+                            console.log(`✓ Parsed chunk ${currentChunkIndex}: ${chunkData.length} bytes`);
                             
                             // Call progress callback
                             if (progressCallback && totalChunks !== null) {
+                                console.log(`Calling progress callback: chunk ${currentChunkIndex + 1}/${totalChunks}`);
                                 progressCallback(currentChunkIndex, totalChunks);
+                            } else {
+                                console.warn('Progress callback not called:', {
+                                    hasCallback: !!progressCallback,
+                                    totalChunks: totalChunks
+                                });
                             }
                         }
                         
@@ -524,22 +574,37 @@ async function downloadFile(fileMetadata: any, walletAddress: string, $button?: 
         // Extract metadata from response headers
         const responseFileName = encryptedResponse.headers.get('X-Original-Name') || fileName;
         const responseContentType = encryptedResponse.headers.get('X-Content-Type') || metadata.content_type;
-        const totalChunks = encryptedResponse.headers.get('X-Total-Chunks');
+        const totalChunksHeader = encryptedResponse.headers.get('X-Total-Chunks');
+        const contentType = encryptedResponse.headers.get('Content-Type') || '';
+        
+        // Log all response headers for debugging
+        console.log('=== Storage Provider Response Headers ===');
+        console.log('Content-Type:', contentType);
+        console.log('X-Total-Chunks:', totalChunksHeader);
+        console.log('X-Original-Name:', encryptedResponse.headers.get('X-Original-Name'));
+        console.log('X-Content-Type:', encryptedResponse.headers.get('X-Content-Type'));
+        
+        // Log all headers
+        const allHeaders: Record<string, string> = {};
+        encryptedResponse.headers.forEach((value, key) => {
+            allHeaders[key] = value;
+        });
+        console.log('All headers:', allHeaders);
         
         console.log('File metadata from headers:', {
             fileName: responseFileName,
             contentType: responseContentType,
-            totalChunks: totalChunks
+            totalChunks: totalChunksHeader
         });
         
         // Check if response is multipart
-        const contentType = encryptedResponse.headers.get('Content-Type') || '';
         if (contentType.includes('multipart/byteranges')) {
             // Parse multipart response with progress updates
             console.log('Parsing multipart response...');
             
-            // Get total chunks from header
-            const totalChunksNum = totalChunks ? parseInt(totalChunks, 10) : 0;
+            // Get total chunks from main response header
+            const totalChunksNum = totalChunksHeader ? parseInt(totalChunksHeader, 10) : null;
+            console.log('Total chunks from main response header:', totalChunksNum);
             
             // Replace button with progress bar if button is provided
             let $progressContainer: JQuery<HTMLElement> | null = null;
@@ -561,14 +626,15 @@ async function downloadFile(fileMetadata: any, walletAddress: string, $button?: 
             // Progress callback
             const progressCallback = (chunkIndex: number, total: number) => {
                 const progress = ((chunkIndex + 1) / total) * 100;
+                console.log(`Progress update: chunk ${chunkIndex + 1}/${total} = ${Math.round(progress)}%`);
                 if ($progressContainer && $progressContainer.length > 0) {
                     $progressContainer.css('width', `${progress}%`).attr('aria-valuenow', progress);
                     $progressContainer.text(`${Math.round(progress)}%`);
                 }
             };
             
-            const encryptedBlob = await parseMultipartResponse(encryptedResponse, contentType, progressCallback);
-            console.log(`Downloaded and combined ${totalChunks || 'unknown'} chunks: ${encryptedBlob.size} bytes`);
+            const encryptedBlob = await parseMultipartResponse(encryptedResponse, contentType, totalChunksNum, progressCallback);
+            console.log(`Downloaded and combined ${totalChunksHeader || 'unknown'} chunks: ${encryptedBlob.size} bytes`);
             await finishDownload(encryptedBlob, originalFileHash, walletAddress, responseFileName);
         } else {
             // Fallback: treat as single blob (for backwards compatibility, though we said no backwards compat)
@@ -750,6 +816,8 @@ export async function fetchFiles(walletAddress: string): Promise<void> {
         
         // Add event listeners to download buttons using event delegation
         // This ensures handlers work even after buttons are restored
+        // Remove any existing handlers first to prevent duplicates
+        $contentArea.off('click', '.download-btn');
         $contentArea.on('click', '.download-btn', async function(e) {
             e.preventDefault();
             const $button = $(this);
@@ -761,22 +829,19 @@ export async function fetchFiles(walletAddress: string): Promise<void> {
                 return;
             }
             
-            // Find the file metadata (handle both camelCase and snake_case)
-            const file = files.find((f: any) => {
-                const fMerkleRoot = f.merkleRoot || f.merkle_root;
-                return fMerkleRoot === merkleRoot;
-            });
-            if (!file) {
-                showToast('File not found', 'error');
-                return;
-            }
+            // Create a minimal file object with just the merkle root
+            // downloadFile will query the full file info from the blockchain
+            const fileMetadata = {
+                merkleRoot: merkleRoot,
+                merkle_root: merkleRoot
+            };
             
             // Replace button with progress bar
             const $buttonContainer = $button.parent(); // div.mt-2
             const originalHTML = $buttonContainer.html();
             
             try {
-                await downloadFile(file, walletAddress, $button);
+                await downloadFile(fileMetadata, walletAddress, $button);
             } finally {
                 // Restore button
                 $buttonContainer.html(originalHTML);
