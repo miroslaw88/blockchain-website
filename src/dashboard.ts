@@ -115,9 +115,9 @@ export namespace Dashboard {
     }
 
 
-    // Hash filename (like Jackal protocol)
+    // Hash filename (like OSD system protocol)
     async function hashFilename(filename: string): Promise<string> {
-        // Hash filename + timestamp (like Jackal: fileMeta.name + Date.now().toString())
+        // Hash filename + timestamp (like OSD system: fileMeta.name + Date.now().toString())
         const timestamp = Date.now().toString();
         const dataToHash = filename + timestamp;
         const hashBuffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(dataToHash));
@@ -125,10 +125,10 @@ export namespace Dashboard {
         return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
     }
 
-    // Encrypt file using chunked AES-256-GCM with ECIES key derivation (Jackal-style)
+    // Encrypt file using chunked AES-256-GCM with ECIES key derivation (OSD system-style)
     // Returns array of encrypted chunks (each chunk is uploaded individually)
     async function encryptFile(file: File, userAddress: string): Promise<Blob[]> {
-        const encryptionChunkSize = 32 * 1024 * 1024; // 32MB chunks (like Jackal)
+        const encryptionChunkSize = 32 * 1024 * 1024; // 32MB chunks (like OSD system)
         
         // Derive ECIES private key from wallet signature
         const eciesKeyMaterial = await deriveECIESPrivateKey(userAddress);
@@ -557,7 +557,7 @@ export namespace Dashboard {
             // Calculate total encrypted size
             const totalEncryptedSize = encryptedChunks.reduce((sum, chunk) => sum + chunk.size, 0);
 
-            // Step 5: Hash filename (like Jackal protocol)
+            // Step 5: Hash filename (like OSD system protocol)
             updateUploadingFileProgress(uploadId, 30, 'Processing filename...');
             const hashedFileName = await hashFilename(file.name);
 
@@ -566,7 +566,7 @@ export namespace Dashboard {
             updateUploadingFileProgress(uploadId, 40, 'Posting transaction to blockchain...');
             const expirationTime = Math.floor(Date.now() / 1000) + 86400 * 30; // 30 days
             const metadata = {
-                name: hashedFileName, // Store hashed filename (like Jackal)
+                name: hashedFileName, // Store hashed filename (like OSD system)
                 original_name: file.name, // Store original filename for display/download
                 content_type: file.type || 'application/octet-stream',
                 original_file_hash: originalFileHash // Store original hash for decryption

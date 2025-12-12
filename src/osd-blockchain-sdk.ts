@@ -69,7 +69,7 @@ export interface FileMetadata {
 // ============================================================================
 
 export const CHAIN_ID = 'osdblockchain';
-export const ENCRYPTION_CHUNK_SIZE = 32 * 1024 * 1024; // 32MB chunks (like Jackal)
+export const ENCRYPTION_CHUNK_SIZE = 32 * 1024 * 1024; // 32MB chunks (like OSD system)
 export const PBKDF2_ITERATIONS = 10000;
 export const AES_TAG_LENGTH = 128; // 128-bit authentication tag
 
@@ -154,7 +154,7 @@ export async function calculateMerkleRoot(data: ArrayBuffer): Promise<string> {
 }
 
 /**
- * Hash filename (like Jackal protocol)
+ * Hash filename (like OSD system protocol)
  * Combines filename with timestamp and hashes with SHA-256
  */
 export async function hashFilename(filename: string): Promise<string> {
@@ -170,7 +170,7 @@ export async function hashFilename(filename: string): Promise<string> {
 // ============================================================================
 
 /**
- * Encrypt file using chunked AES-256-GCM with ECIES key derivation (Jackal-style)
+ * Encrypt file using chunked AES-256-GCM with ECIES key derivation (OSD system-style)
  * 
  * @param file - The file to encrypt
  * @param userAddress - User's Cosmos wallet address (bech32 format)
@@ -251,7 +251,7 @@ export async function encryptFile(
 // ============================================================================
 
 /**
- * Decrypt file using chunked AES-256-GCM with ECIES key derivation (Jackal-style)
+ * Decrypt file using chunked AES-256-GCM with ECIES key derivation (OSD system-style)
  * 
  * @param encryptedBlob - The encrypted file blob (with size headers)
  * @param userAddress - User's Cosmos wallet address (bech32 format)

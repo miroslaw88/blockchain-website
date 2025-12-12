@@ -387,7 +387,7 @@ function parseHeaders(headerText: string): Record<string, string> {
 }
 
 
-// Decrypt file using chunked AES-256-GCM with ECIES key derivation (Jackal-style)
+// Decrypt file using chunked AES-256-GCM with ECIES key derivation (OSD system-style)
 async function decryptFile(encryptedBlob: Blob, userAddress: string, originalFileHash: string): Promise<Blob> {
     // Derive ECIES private key from wallet signature (same as encryption)
     const eciesKeyMaterial = await deriveECIESPrivateKey(userAddress);

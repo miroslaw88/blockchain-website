@@ -4,7 +4,7 @@ A reusable TypeScript library for encrypting/decrypting files and posting blockc
 
 ## Features
 
-- **File Encryption/Decryption**: Chunked AES-256-GCM encryption with ECIES key derivation (Jackal-style)
+- **File Encryption/Decryption**: Chunked AES-256-GCM encryption with ECIES key derivation (OSD system-style)
 - **Blockchain Transactions**: Post file metadata to blockchain and receive storage provider assignments
 - **Key Management**: Automatic ECIES key derivation from wallet signatures with caching
 - **Framework Agnostic**: No jQuery or framework dependencies - pure TypeScript/JavaScript
