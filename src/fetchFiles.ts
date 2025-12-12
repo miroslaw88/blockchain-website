@@ -479,6 +479,47 @@ function getFileIcon(contentType: string): string {
     }
 }
 
+// Get folder icon
+function getFolderIcon(): string {
+    return '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>';
+}
+
+// Build breadcrumb navigation HTML
+function buildBreadcrumbs(currentPath: string): string {
+    if (!currentPath || currentPath === '' || currentPath === '/') {
+        // Root directory - no breadcrumbs needed
+        return '';
+    }
+    
+    // Split path into segments
+    const segments = currentPath.split('/').filter(seg => seg !== '');
+    
+    // Build breadcrumb items
+    let breadcrumbItems = '<li class="breadcrumb-item"><a href="#" class="breadcrumb-link" data-path="">Root</a></li>';
+    
+    let accumulatedPath = '';
+    segments.forEach((segment, index) => {
+        accumulatedPath += '/' + segment;
+        // Ensure directory paths end with /
+        const pathForNavigation = accumulatedPath + (index < segments.length - 1 ? '/' : '');
+        
+        const isLast = index === segments.length - 1;
+        if (isLast) {
+            breadcrumbItems += `<li class="breadcrumb-item active" aria-current="page">${segment}</li>`;
+        } else {
+            breadcrumbItems += `<li class="breadcrumb-item"><a href="#" class="breadcrumb-link" data-path="${pathForNavigation}">${segment}</a></li>`;
+        }
+    });
+    
+    return `
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb mb-0">
+                ${breadcrumbItems}
+            </ol>
+        </nav>
+    `;
+}
+
 // Format file size
 function formatFileSize(bytes: number): string {
     if (bytes === 0) return '0 Bytes';
@@ -687,7 +728,8 @@ async function finishDownload(encryptedBlob: Blob, originalFileHash: string, wal
 }
 
 // Fetch files from blockchain
-export async function fetchFiles(walletAddress: string): Promise<void> {
+// path: Optional path to navigate into a specific folder (e.g., "/test/")
+export async function fetchFiles(walletAddress: string, path: string = ''): Promise<void> {
     const $contentArea = $('#contentArea');
     if ($contentArea.length === 0) return;
 
@@ -695,12 +737,28 @@ export async function fetchFiles(walletAddress: string): Promise<void> {
     $contentArea.html('<div class="text-center"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div><p class="mt-2">Loading files...</p><p class="text-muted small">This may take a few seconds...</p></div>');
 
     try {
-        // Construct API URL with wallet address
+        // Construct API URL with wallet address and path parameter
         // Use HTTPS through Caddy reverse proxy (routes /osd-blockchain to localhost:1337)
+        // API endpoint: /osd-blockchain/osdblockchain/v1/files/owner/{owner}?path={path}
         const apiEndpoint = 'https://storage.datavault.space';
-        const apiUrl = `${apiEndpoint}/osd-blockchain/osdblockchain/v1/files/owner/${walletAddress}`;
+        
+        // Normalize and encode the path parameter
+        // Always include path parameter ("/" for root directory, otherwise use provided path)
+        let normalizedPath = path ? path.trim() : '';
+        // If path is empty or just whitespace, use "/" for root directory
+        // Also ensure we don't have double slashes
+        if (!normalizedPath || normalizedPath === '') {
+            normalizedPath = '/';
+        } else if (normalizedPath.startsWith('//')) {
+            // Fix double slash at start
+            normalizedPath = normalizedPath.replace(/^\/+/, '/');
+        }
+        const encodedPath = encodeURIComponent(normalizedPath);
+        
+        const apiUrl = `${apiEndpoint}/osd-blockchain/osdblockchain/v1/files/owner/${walletAddress}?path=${encodedPath}`;
         
         console.log('Fetching from:', apiUrl);
+        console.log('Path parameter:', normalizedPath);
         
         // Fetch data from blockchain with 15 second timeout
         const response = await fetchWithTimeout(apiUrl, 15000);
@@ -731,84 +789,146 @@ export async function fetchFiles(walletAddress: string): Promise<void> {
         
         const data = await response.json();
         
-        // Parse files array (assuming response is an object with a 'files' array or the response itself is an array)
-        const files = Array.isArray(data) ? data : (data.files || []);
+        // Parse entries array - API returns {"path": "", "entries": [...]}
+        // Each entry has a type field: "file" or "directory"
+        const entries: Array<{
+            type: 'file' | 'directory';
+            name: string;
+            path: string;
+            merkle_root?: string;
+            owner?: string;
+            size_bytes?: string;
+            expiration_time?: string;
+            max_proofs?: string;
+            metadata?: string;
+            uploaded_at?: string;
+        }> = data.entries || [];
         
-        // Display files as thumbnails
-        if (files.length === 0) {
+        // Store current path in sessionStorage for uploads (even if no entries)
+        // Normalize the path: use "/" for root, ensure no double slashes
+        let currentPath = data.path || path || '';
+        if (!currentPath || currentPath === '') {
+            currentPath = '/';
+        } else if (currentPath.startsWith('//')) {
+            // Fix double slash at start
+            currentPath = currentPath.replace(/^\/+/, '/');
+        }
+        sessionStorage.setItem('currentDirectoryPath', currentPath);
+        
+        // Display entries as thumbnails
+        if (entries.length === 0) {
             $contentArea.html(`
                 <div class="card">
                     <div class="card-header">
-                        <h5 class="mb-0">Files for ${walletAddress}</h5>
+                        <h5 class="mb-0">Files and Folders for ${walletAddress}</h5>
                     </div>
                     <div class="card-body text-center py-5">
-                        <p class="text-muted">No files found</p>
+                        <p class="text-muted">No files or folders found</p>
                     </div>
                 </div>
             `);
             return;
         }
         
+        // Count files and directories
+        const fileCount = entries.filter(e => e.type === 'file').length;
+        const directoryCount = entries.filter(e => e.type === 'directory').length;
+        
+        // Build breadcrumb navigation (currentPath already defined above)
+        const breadcrumbs = buildBreadcrumbs(currentPath);
+        
         // Generate thumbnail grid
-        const filesGrid = files.map((file: any) => {
-            // Parse metadata
-            let metadata: any = { content_type: 'application/octet-stream' };
-            try {
-                metadata = JSON.parse(file.metadata || '{}');
-            } catch (e) {
-                console.warn('Failed to parse metadata:', e);
-            }
-            
-            // Get filename from original_name (hashed format stores original in original_name)
-            const fileName = metadata.original_name || 'Unknown File';
-            const contentType = metadata.content_type || 'application/octet-stream';
-            // Handle both camelCase and snake_case from API
-            const fileSize = formatFileSize((file.sizeBytes || file.size_bytes || 0));
-            const uploadDate = formatDate((file.uploadedAt || file.uploaded_at || 0));
-            const expirationDate = formatDate((file.expirationTime || file.expiration_time || 0));
-            const expirationTimestamp = file.expirationTime || file.expiration_time || 0;
-            const isExpired = expirationTimestamp && expirationTimestamp < Math.floor(Date.now() / 1000);
-            // Handle both camelCase and snake_case for merkle root
-            const merkleRoot = file.merkleRoot || file.merkle_root || '';
-            
-            return `
-                <div class="col-md-3 col-sm-4 col-6 mb-4">
-                    <div class="card h-100 file-thumbnail ${isExpired ? 'border-warning' : ''}" style="transition: transform 0.2s;">
-                        <div class="card-body text-center p-3">
-                            <div class="file-icon mb-2" style="color: #6c757d;">
-                                ${getFileIcon(contentType)}
+        const entriesGrid = entries.map((entry: any) => {
+            if (entry.type === 'file') {
+                // Handle file entry
+                // Parse metadata
+                let metadata: any = { content_type: 'application/octet-stream' };
+                try {
+                    metadata = JSON.parse(entry.metadata || '{}');
+                } catch (e) {
+                    console.warn('Failed to parse metadata:', e);
+                }
+                
+                // Get filename from original_name (hashed format stores original in original_name)
+                const fileName = metadata.original_name || entry.name || 'Unknown File';
+                const contentType = metadata.content_type || 'application/octet-stream';
+                // Handle both camelCase and snake_case from API
+                const sizeBytes = parseInt(entry.size_bytes || entry.sizeBytes || '0', 10);
+                const fileSize = formatFileSize(sizeBytes);
+                const uploadDate = formatDate(parseInt(entry.uploaded_at || entry.uploadedAt || '0', 10));
+                const expirationDate = formatDate(parseInt(entry.expiration_time || entry.expirationTime || '0', 10));
+                const expirationTimestamp = parseInt(entry.expiration_time || entry.expirationTime || '0', 10);
+                const isExpired = expirationTimestamp && expirationTimestamp < Math.floor(Date.now() / 1000);
+                // Handle both camelCase and snake_case for merkle root
+                const merkleRoot = entry.merkle_root || entry.merkleRoot || '';
+                
+                return `
+                    <div class="col-md-3 col-sm-4 col-6 mb-4">
+                        <div class="card h-100 file-thumbnail ${isExpired ? 'border-warning' : ''}" style="transition: transform 0.2s;">
+                            <div class="card-body text-center p-3">
+                                <div class="file-icon mb-2" style="color: #6c757d;">
+                                    ${getFileIcon(contentType)}
+                                </div>
+                                <h6 class="card-title mb-1 text-truncate" style="font-size: 0.9rem;" title="${fileName}">${fileName}</h6>
+                                <p class="text-muted small mb-1">${fileSize}</p>
+                                ${isExpired ? '<span class="badge bg-warning text-dark mb-2">Expired</span>' : ''}
+                                <div class="mt-2">
+                                    <button class="btn btn-sm btn-primary download-btn" data-merkle-root="${merkleRoot}" data-file-name="${fileName}" title="Download">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                            <polyline points="7 10 12 15 17 10"></polyline>
+                                            <line x1="12" y1="15" x2="12" y2="3"></line>
+                                        </svg>
+                                    </button>
+                                </div>
                             </div>
-                            <h6 class="card-title mb-1 text-truncate" style="font-size: 0.9rem;" title="${fileName}">${fileName}</h6>
-                            <p class="text-muted small mb-1">${fileSize}</p>
-                            ${isExpired ? '<span class="badge bg-warning text-dark mb-2">Expired</span>' : ''}
-                            <div class="mt-2">
-                                <button class="btn btn-sm btn-primary download-btn" data-merkle-root="${merkleRoot}" data-file-name="${fileName}" title="Download">
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                        <polyline points="7 10 12 15 17 10"></polyline>
-                                        <line x1="12" y1="15" x2="12" y2="3"></line>
-                                    </svg>
-                                </button>
+                            <div class="card-footer bg-transparent border-0 pt-0 pb-2">
+                                <small class="text-muted d-block" style="font-size: 0.75rem;">Uploaded: ${uploadDate}</small>
+                                <small class="text-muted d-block" style="font-size: 0.75rem;">Expires: ${expirationDate}</small>
                             </div>
-                        </div>
-                        <div class="card-footer bg-transparent border-0 pt-0 pb-2">
-                            <small class="text-muted d-block" style="font-size: 0.75rem;">Uploaded: ${uploadDate}</small>
-                            <small class="text-muted d-block" style="font-size: 0.75rem;">Expires: ${expirationDate}</small>
                         </div>
                     </div>
-                </div>
-            `;
-        }).join('');
+                `;
+            } else if (entry.type === 'directory') {
+                // Handle directory entry
+                const folderName = entry.name || 'Unknown Folder';
+                const folderPath = entry.path || '';
+                
+                return `
+                    <div class="col-md-3 col-sm-4 col-6 mb-4">
+                        <div class="card h-100 file-thumbnail folder-thumbnail" style="transition: transform 0.2s; cursor: pointer;" data-folder-path="${folderPath}">
+                            <div class="card-body text-center p-3">
+                                <div class="file-icon mb-2" style="color: #ffc107;">
+                                    ${getFolderIcon()}
+                                </div>
+                                <h6 class="card-title mb-1 text-truncate" style="font-size: 0.9rem;" title="${folderName}">${folderName}</h6>
+                                <p class="text-muted small mb-1">Folder</p>
+                                <div class="mt-2">
+                                    <span class="badge bg-info">Directory</span>
+                                </div>
+                            </div>
+                            <div class="card-footer bg-transparent border-0 pt-0 pb-2">
+                                <small class="text-muted d-block" style="font-size: 0.75rem;">Path: ${folderPath}</small>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                // Unknown type - skip
+                return '';
+            }
+        }).filter(html => html !== '').join('');
         
         $contentArea.html(`
             <div class="card">
                 <div class="card-header d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0">Files (${files.length})</h5>
+                    <h5 class="mb-0">Files and Folders (${fileCount} files, ${directoryCount} folders)</h5>
                     <small class="text-muted">${walletAddress}</small>
                 </div>
                 <div class="card-body">
-                    <div class="row">
-                        ${filesGrid}
+                    ${breadcrumbs}
+                    <div class="row mt-3">
+                        ${entriesGrid}
                     </div>
                 </div>
             </div>
@@ -856,6 +976,38 @@ export async function fetchFiles(walletAddress: string): Promise<void> {
             mouseleave: function() {
                 $(this).css({ transform: 'translateY(0)', boxShadow: '' });
             }
+        });
+        
+        // Add click handler for folder thumbnails - navigate into folder
+        // Remove any existing handlers first to prevent duplicates
+        $contentArea.off('click', '.folder-thumbnail');
+        $contentArea.on('click', '.folder-thumbnail', function(e) {
+            e.preventDefault();
+            e.stopPropagation(); // Prevent event bubbling
+            const $folder = $(this);
+            const folderPath = $folder.attr('data-folder-path');
+            if (folderPath) {
+                // Trim the path to remove any trailing spaces
+                const trimmedPath = folderPath.trim();
+                console.log('Navigating to folder:', trimmedPath);
+                // Navigate into the folder
+                fetchFiles(walletAddress, trimmedPath);
+            }
+        });
+        
+        // Add click handler for breadcrumb navigation
+        $contentArea.off('click', '.breadcrumb-link');
+        $contentArea.on('click', '.breadcrumb-link', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const $breadcrumb = $(this);
+            let targetPath = $breadcrumb.attr('data-path') || '';
+            // Normalize: if empty string, use "/" for root
+            if (targetPath === '') {
+                targetPath = '/';
+            }
+            console.log('Navigating to path:', targetPath);
+            fetchFiles(walletAddress, targetPath);
         });
     } catch (error) {
         // Display detailed error

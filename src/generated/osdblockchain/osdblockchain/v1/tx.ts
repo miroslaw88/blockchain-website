@@ -208,6 +208,30 @@ export interface MsgRegisterStorageProviderResponse {
   provider: StorageProvider | undefined;
 }
 
+/**
+ * MsgCreateDirectory is the Msg/CreateDirectory request type.
+ * This message is used to create a directory for an owner.
+ * Indexer nodes will listen to the emitted event and create the directory in their local storage.
+ */
+export interface MsgCreateDirectory {
+  /** owner is the address that owns the directory. */
+  owner: string;
+  /**
+   * path is the directory path (e.g., "/documents/folder1").
+   * Must be a valid path starting with "/".
+   */
+  path: string;
+}
+
+/**
+ * MsgCreateDirectoryResponse defines the response structure for executing a
+ * MsgCreateDirectory message.
+ */
+export interface MsgCreateDirectoryResponse {
+  /** created_at is the Unix timestamp when the directory was created (seconds). */
+  createdAt: number;
+}
+
 function createBaseMsgUpdateParams(): MsgUpdateParams {
   return { authority: "", params: undefined };
 }
@@ -1505,6 +1529,140 @@ export const MsgRegisterStorageProviderResponse: MessageFns<MsgRegisterStoragePr
   },
 };
 
+function createBaseMsgCreateDirectory(): MsgCreateDirectory {
+  return { owner: "", path: "" };
+}
+
+export const MsgCreateDirectory: MessageFns<MsgCreateDirectory> = {
+  encode(message: MsgCreateDirectory, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.owner !== "") {
+      writer.uint32(10).string(message.owner);
+    }
+    if (message.path !== "") {
+      writer.uint32(18).string(message.path);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): MsgCreateDirectory {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseMsgCreateDirectory();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.owner = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.path = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): MsgCreateDirectory {
+    return {
+      owner: isSet(object.owner) ? globalThis.String(object.owner) : "",
+      path: isSet(object.path) ? globalThis.String(object.path) : "",
+    };
+  },
+
+  toJSON(message: MsgCreateDirectory): unknown {
+    const obj: any = {};
+    if (message.owner !== "") {
+      obj.owner = message.owner;
+    }
+    if (message.path !== "") {
+      obj.path = message.path;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<MsgCreateDirectory>, I>>(base?: I): MsgCreateDirectory {
+    return MsgCreateDirectory.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<MsgCreateDirectory>, I>>(object: I): MsgCreateDirectory {
+    const message = createBaseMsgCreateDirectory();
+    message.owner = object.owner ?? "";
+    message.path = object.path ?? "";
+    return message;
+  },
+};
+
+function createBaseMsgCreateDirectoryResponse(): MsgCreateDirectoryResponse {
+  return { createdAt: 0 };
+}
+
+export const MsgCreateDirectoryResponse: MessageFns<MsgCreateDirectoryResponse> = {
+  encode(message: MsgCreateDirectoryResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.createdAt !== 0) {
+      writer.uint32(8).int64(message.createdAt);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): MsgCreateDirectoryResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseMsgCreateDirectoryResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.createdAt = longToNumber(reader.int64());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): MsgCreateDirectoryResponse {
+    return { createdAt: isSet(object.createdAt) ? globalThis.Number(object.createdAt) : 0 };
+  },
+
+  toJSON(message: MsgCreateDirectoryResponse): unknown {
+    const obj: any = {};
+    if (message.createdAt !== 0) {
+      obj.createdAt = Math.round(message.createdAt);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<MsgCreateDirectoryResponse>, I>>(base?: I): MsgCreateDirectoryResponse {
+    return MsgCreateDirectoryResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<MsgCreateDirectoryResponse>, I>>(object: I): MsgCreateDirectoryResponse {
+    const message = createBaseMsgCreateDirectoryResponse();
+    message.createdAt = object.createdAt ?? 0;
+    return message;
+  },
+};
+
 /** Msg defines the Msg service. */
 export interface Msg {
   /**
@@ -1536,6 +1694,11 @@ export interface Msg {
    * Storage providers store actual file data off-chain and can submit proofs to verify storage.
    */
   RegisterStorageProvider(request: MsgRegisterStorageProvider): Promise<MsgRegisterStorageProviderResponse>;
+  /**
+   * CreateDirectory creates a directory for an owner.
+   * Indexer nodes will listen to this event and create the directory in their local storage.
+   */
+  CreateDirectory(request: MsgCreateDirectory): Promise<MsgCreateDirectoryResponse>;
 }
 
 export const MsgServiceName = "osdblockchain.osdblockchain.v1.Msg";
@@ -1553,6 +1716,7 @@ export class MsgClientImpl implements Msg {
     this.UpdateIndexerRange = this.UpdateIndexerRange.bind(this);
     this.DeregisterIndexer = this.DeregisterIndexer.bind(this);
     this.RegisterStorageProvider = this.RegisterStorageProvider.bind(this);
+    this.CreateDirectory = this.CreateDirectory.bind(this);
   }
   UpdateParams(request: MsgUpdateParams): Promise<MsgUpdateParamsResponse> {
     const data = MsgUpdateParams.encode(request).finish();
@@ -1600,6 +1764,12 @@ export class MsgClientImpl implements Msg {
     const data = MsgRegisterStorageProvider.encode(request).finish();
     const promise = this.rpc.request(this.service, "RegisterStorageProvider", data);
     return promise.then((data) => MsgRegisterStorageProviderResponse.decode(new BinaryReader(data)));
+  }
+
+  CreateDirectory(request: MsgCreateDirectory): Promise<MsgCreateDirectoryResponse> {
+    const data = MsgCreateDirectory.encode(request).finish();
+    const promise = this.rpc.request(this.service, "CreateDirectory", data);
+    return promise.then((data) => MsgCreateDirectoryResponse.decode(new BinaryReader(data)));
   }
 }
 

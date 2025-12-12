@@ -7,7 +7,7 @@
 /* eslint-disable */
 import { BinaryReader, BinaryWriter } from "@bufbuild/protobuf/wire";
 import { PageRequest, PageResponse } from "../../../cosmos/base/query/v1beta1/pagination";
-import { FileMetadata } from "./file_metadata";
+import { DirectoryEntry, FileMetadata } from "./file_metadata";
 import { IndexerRange, PrefixLoad } from "./indexer";
 import { Params } from "./params";
 import { StorageProvider } from "./storage_provider";
@@ -82,8 +82,13 @@ export interface QueryFilesByOwnerRequest {
 
 /** QueryFilesByOwnerResponse is response type for the Query/FilesByOwner RPC method. */
 export interface QueryFilesByOwnerResponse {
-  /** files are the file metadata entries. */
-  files: FileMetadata[];
+  /**
+   * entries are the file and directory entries.
+   * Each entry has a type field ("file" or "directory") to distinguish between them.
+   * Files have all file fields (merkle_root, size, owner, etc.).
+   * Directories only have name, type, and path fields.
+   */
+  entries: DirectoryEntry[];
   /** pagination defines the pagination in the response. */
   pagination: PageResponse | undefined;
 }
@@ -905,13 +910,13 @@ export const QueryFilesByOwnerRequest: MessageFns<QueryFilesByOwnerRequest> = {
 };
 
 function createBaseQueryFilesByOwnerResponse(): QueryFilesByOwnerResponse {
-  return { files: [], pagination: undefined };
+  return { entries: [], pagination: undefined };
 }
 
 export const QueryFilesByOwnerResponse: MessageFns<QueryFilesByOwnerResponse> = {
   encode(message: QueryFilesByOwnerResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    for (const v of message.files) {
-      FileMetadata.encode(v!, writer.uint32(10).fork()).join();
+    for (const v of message.entries) {
+      DirectoryEntry.encode(v!, writer.uint32(10).fork()).join();
     }
     if (message.pagination !== undefined) {
       PageResponse.encode(message.pagination, writer.uint32(18).fork()).join();
@@ -931,7 +936,7 @@ export const QueryFilesByOwnerResponse: MessageFns<QueryFilesByOwnerResponse> = 
             break;
           }
 
-          message.files.push(FileMetadata.decode(reader, reader.uint32()));
+          message.entries.push(DirectoryEntry.decode(reader, reader.uint32()));
           continue;
         }
         case 2: {
@@ -953,15 +958,17 @@ export const QueryFilesByOwnerResponse: MessageFns<QueryFilesByOwnerResponse> = 
 
   fromJSON(object: any): QueryFilesByOwnerResponse {
     return {
-      files: globalThis.Array.isArray(object?.files) ? object.files.map((e: any) => FileMetadata.fromJSON(e)) : [],
+      entries: globalThis.Array.isArray(object?.entries)
+        ? object.entries.map((e: any) => DirectoryEntry.fromJSON(e))
+        : [],
       pagination: isSet(object.pagination) ? PageResponse.fromJSON(object.pagination) : undefined,
     };
   },
 
   toJSON(message: QueryFilesByOwnerResponse): unknown {
     const obj: any = {};
-    if (message.files?.length) {
-      obj.files = message.files.map((e) => FileMetadata.toJSON(e));
+    if (message.entries?.length) {
+      obj.entries = message.entries.map((e) => DirectoryEntry.toJSON(e));
     }
     if (message.pagination !== undefined) {
       obj.pagination = PageResponse.toJSON(message.pagination);
@@ -974,7 +981,7 @@ export const QueryFilesByOwnerResponse: MessageFns<QueryFilesByOwnerResponse> = 
   },
   fromPartial<I extends Exact<DeepPartial<QueryFilesByOwnerResponse>, I>>(object: I): QueryFilesByOwnerResponse {
     const message = createBaseQueryFilesByOwnerResponse();
-    message.files = object.files?.map((e) => FileMetadata.fromPartial(e)) || [];
+    message.entries = object.entries?.map((e) => DirectoryEntry.fromPartial(e)) || [];
     message.pagination = (object.pagination !== undefined && object.pagination !== null)
       ? PageResponse.fromPartial(object.pagination)
       : undefined;

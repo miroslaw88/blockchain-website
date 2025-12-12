@@ -30,6 +30,36 @@ export interface FileMetadata {
   uploadedAt: number;
 }
 
+/**
+ * DirectoryEntry represents either a file or a directory in a directory listing.
+ * The type field determines which fields are populated.
+ */
+export interface DirectoryEntry {
+  /** type is either "file" or "directory" (required). */
+  type: string;
+  /** name is the name of the file or directory. */
+  name: string;
+  /** path is the full path of the file or directory. */
+  path: string;
+  /**
+   * Fields for files only (ignored for directories):
+   * merkle_root is the Merkle root hash of the file (only for files).
+   */
+  merkleRoot: string;
+  /** owner is the address that owns this file (only for files). */
+  owner: string;
+  /** size_bytes is the size of the file in bytes (only for files). */
+  sizeBytes: number;
+  /** expiration_time is when the file storage expires (only for files, Unix timestamp, seconds). */
+  expirationTime: number;
+  /** max_proofs is the number of storage providers that should store this file (only for files). */
+  maxProofs: number;
+  /** metadata is JSON metadata containing additional file information (only for files). */
+  metadata: string;
+  /** uploaded_at is when the file was uploaded (only for files, Unix timestamp, seconds). */
+  uploadedAt: number;
+}
+
 function createBaseFileMetadata(): FileMetadata {
   return { merkleRoot: "", owner: "", sizeBytes: 0, expirationTime: 0, maxProofs: 0, metadata: "", uploadedAt: 0 };
 }
@@ -175,6 +205,221 @@ export const FileMetadata: MessageFns<FileMetadata> = {
   },
   fromPartial<I extends Exact<DeepPartial<FileMetadata>, I>>(object: I): FileMetadata {
     const message = createBaseFileMetadata();
+    message.merkleRoot = object.merkleRoot ?? "";
+    message.owner = object.owner ?? "";
+    message.sizeBytes = object.sizeBytes ?? 0;
+    message.expirationTime = object.expirationTime ?? 0;
+    message.maxProofs = object.maxProofs ?? 0;
+    message.metadata = object.metadata ?? "";
+    message.uploadedAt = object.uploadedAt ?? 0;
+    return message;
+  },
+};
+
+function createBaseDirectoryEntry(): DirectoryEntry {
+  return {
+    type: "",
+    name: "",
+    path: "",
+    merkleRoot: "",
+    owner: "",
+    sizeBytes: 0,
+    expirationTime: 0,
+    maxProofs: 0,
+    metadata: "",
+    uploadedAt: 0,
+  };
+}
+
+export const DirectoryEntry: MessageFns<DirectoryEntry> = {
+  encode(message: DirectoryEntry, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.type !== "") {
+      writer.uint32(10).string(message.type);
+    }
+    if (message.name !== "") {
+      writer.uint32(18).string(message.name);
+    }
+    if (message.path !== "") {
+      writer.uint32(26).string(message.path);
+    }
+    if (message.merkleRoot !== "") {
+      writer.uint32(34).string(message.merkleRoot);
+    }
+    if (message.owner !== "") {
+      writer.uint32(42).string(message.owner);
+    }
+    if (message.sizeBytes !== 0) {
+      writer.uint32(48).int64(message.sizeBytes);
+    }
+    if (message.expirationTime !== 0) {
+      writer.uint32(56).int64(message.expirationTime);
+    }
+    if (message.maxProofs !== 0) {
+      writer.uint32(64).int64(message.maxProofs);
+    }
+    if (message.metadata !== "") {
+      writer.uint32(74).string(message.metadata);
+    }
+    if (message.uploadedAt !== 0) {
+      writer.uint32(80).int64(message.uploadedAt);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): DirectoryEntry {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseDirectoryEntry();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.type = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.path = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.merkleRoot = reader.string();
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.owner = reader.string();
+          continue;
+        }
+        case 6: {
+          if (tag !== 48) {
+            break;
+          }
+
+          message.sizeBytes = longToNumber(reader.int64());
+          continue;
+        }
+        case 7: {
+          if (tag !== 56) {
+            break;
+          }
+
+          message.expirationTime = longToNumber(reader.int64());
+          continue;
+        }
+        case 8: {
+          if (tag !== 64) {
+            break;
+          }
+
+          message.maxProofs = longToNumber(reader.int64());
+          continue;
+        }
+        case 9: {
+          if (tag !== 74) {
+            break;
+          }
+
+          message.metadata = reader.string();
+          continue;
+        }
+        case 10: {
+          if (tag !== 80) {
+            break;
+          }
+
+          message.uploadedAt = longToNumber(reader.int64());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): DirectoryEntry {
+    return {
+      type: isSet(object.type) ? globalThis.String(object.type) : "",
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      path: isSet(object.path) ? globalThis.String(object.path) : "",
+      merkleRoot: isSet(object.merkleRoot) ? globalThis.String(object.merkleRoot) : "",
+      owner: isSet(object.owner) ? globalThis.String(object.owner) : "",
+      sizeBytes: isSet(object.sizeBytes) ? globalThis.Number(object.sizeBytes) : 0,
+      expirationTime: isSet(object.expirationTime) ? globalThis.Number(object.expirationTime) : 0,
+      maxProofs: isSet(object.maxProofs) ? globalThis.Number(object.maxProofs) : 0,
+      metadata: isSet(object.metadata) ? globalThis.String(object.metadata) : "",
+      uploadedAt: isSet(object.uploadedAt) ? globalThis.Number(object.uploadedAt) : 0,
+    };
+  },
+
+  toJSON(message: DirectoryEntry): unknown {
+    const obj: any = {};
+    if (message.type !== "") {
+      obj.type = message.type;
+    }
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.path !== "") {
+      obj.path = message.path;
+    }
+    if (message.merkleRoot !== "") {
+      obj.merkleRoot = message.merkleRoot;
+    }
+    if (message.owner !== "") {
+      obj.owner = message.owner;
+    }
+    if (message.sizeBytes !== 0) {
+      obj.sizeBytes = Math.round(message.sizeBytes);
+    }
+    if (message.expirationTime !== 0) {
+      obj.expirationTime = Math.round(message.expirationTime);
+    }
+    if (message.maxProofs !== 0) {
+      obj.maxProofs = Math.round(message.maxProofs);
+    }
+    if (message.metadata !== "") {
+      obj.metadata = message.metadata;
+    }
+    if (message.uploadedAt !== 0) {
+      obj.uploadedAt = Math.round(message.uploadedAt);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<DirectoryEntry>, I>>(base?: I): DirectoryEntry {
+    return DirectoryEntry.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<DirectoryEntry>, I>>(object: I): DirectoryEntry {
+    const message = createBaseDirectoryEntry();
+    message.type = object.type ?? "";
+    message.name = object.name ?? "";
+    message.path = object.path ?? "";
     message.merkleRoot = object.merkleRoot ?? "";
     message.owner = object.owner ?? "";
     message.sizeBytes = object.sizeBytes ?? 0;

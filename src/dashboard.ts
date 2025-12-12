@@ -3,6 +3,7 @@ import { getKeplr, CHAIN_ID, deriveECIESPrivateKey, eciesKeyMaterialCache } from
 import { fetchFiles } from './fetchFiles';
 import { buyStorage } from './buyStorage';
 import { postFile } from './postFile';
+import { createDirectory } from './createDirectory';
 
 export namespace Dashboard {
     // Flag to prevent concurrent uploads
@@ -326,6 +327,101 @@ export namespace Dashboard {
         }
     }
 
+    // Show create folder form
+    function showCreateFolderForm(): void {
+        const $contentArea = $('#contentArea');
+        if ($contentArea.length === 0) return;
+
+        $contentArea.html(`
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Create Folder</h5>
+                </div>
+                <div class="card-body">
+                    <form id="createFolderForm">
+                        <div class="mb-3">
+                            <label for="folderPath" class="form-label">Folder Path</label>
+                            <input type="text" class="form-control" id="folderPath" 
+                                   placeholder="/documents/my-folder" required>
+                            <div class="form-text">
+                                Enter the folder path (e.g., "/documents/my-folder"). 
+                                Path will be normalized to start with "/" and end with "/".
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary" id="submitCreateFolder">
+                            <span id="createFolderBtnText">Create Folder</span>
+                            <span id="createFolderSpinner" class="spinner-border spinner-border-sm ms-2 d-none" role="status"></span>
+                        </button>
+                    </form>
+                </div>
+            </div>
+        `);
+
+        // Handle form submission
+        $('#createFolderForm').on('submit', async (e) => {
+            e.preventDefault();
+            await handleCreateFolderSubmit();
+        });
+    }
+
+    // Handle create folder form submission
+    async function handleCreateFolderSubmit(): Promise<void> {
+        const $contentArea = $('#contentArea');
+        const $submitBtn = $('#submitCreateFolder');
+        const $btnText = $('#createFolderBtnText');
+        const $spinner = $('#createFolderSpinner');
+
+        if ($contentArea.length === 0 || $submitBtn.length === 0) return;
+
+        try {
+            // Get form value
+            const folderPath = ($('#folderPath').val() as string).trim();
+
+            // Validate input
+            if (!folderPath) {
+                throw new Error('Folder path is required');
+            }
+
+            // Show loading state
+            $submitBtn.prop('disabled', true);
+            $spinner.removeClass('d-none');
+            $btnText.text('Creating...');
+
+            // Execute create directory transaction
+            const result = await createDirectory(folderPath);
+
+            // Format creation date
+            const createdAt = new Date(result.createdAt * 1000).toLocaleString();
+
+            // Show success
+            $contentArea.html(`
+                <div class="alert alert-success" role="alert">
+                    <h5 class="alert-heading">Folder Created Successfully!</h5>
+                    <p><strong>Transaction Hash:</strong> <code>${result.transactionHash}</code></p>
+                    <p><strong>Path:</strong> <code>${folderPath}</code></p>
+                    <p><strong>Created At:</strong> ${createdAt}</p>
+                    <p class="mb-0"><small class="text-muted">The folder will be created by indexer nodes listening to the blockchain event.</small></p>
+                </div>
+            `);
+
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Create folder failed';
+            console.error('Create folder error:', error);
+            
+            $contentArea.html(`
+                <div class="alert alert-danger" role="alert">
+                    <h5 class="alert-heading">Create Folder Failed</h5>
+                    <p>${errorMessage}</p>
+                    <button class="btn btn-secondary mt-2" onclick="location.reload()">Try Again</button>
+                </div>
+            `);
+        } finally {
+            $submitBtn.prop('disabled', false);
+            $spinner.addClass('d-none');
+            $btnText.text('Create Folder');
+        }
+    }
+
 
     // Upload chunk to storage provider
     async function uploadChunkToStorageProvider(
@@ -565,11 +661,16 @@ export namespace Dashboard {
             // Include original file hash and original filename in metadata for decryption
             updateUploadingFileProgress(uploadId, 40, 'Posting transaction to blockchain...');
             const expirationTime = Math.floor(Date.now() / 1000) + 86400 * 30; // 30 days
+            
+            // Get current directory path from sessionStorage (set when navigating folders)
+            const currentPath = sessionStorage.getItem('currentDirectoryPath') || '';
+            
             const metadata = {
                 name: hashedFileName, // Store hashed filename (like OSD system)
                 original_name: file.name, // Store original filename for display/download
                 content_type: file.type || 'application/octet-stream',
-                original_file_hash: originalFileHash // Store original hash for decryption
+                original_file_hash: originalFileHash, // Store original hash for decryption
+                path: currentPath // Store current directory path
             };
             const postFileResult = await postFile(
                 combinedMerkleRoot,
@@ -635,10 +736,11 @@ export namespace Dashboard {
             setTimeout(() => {
                 finalizeUploadingFile(uploadId, true);
                 
-                // Refresh files list to show the new file
+                // Refresh files list to show the new file (use current path if available)
                 const walletAddress = sessionStorage.getItem('walletAddress');
+                const currentPath = sessionStorage.getItem('currentDirectoryPath') || '';
                 if (walletAddress) {
-                    fetchFiles(walletAddress);
+                    fetchFiles(walletAddress, currentPath);
                 }
             }, 500);
 
@@ -710,6 +812,13 @@ export namespace Dashboard {
             e.preventDefault();
             handleMenuClick(e.currentTarget);
             showBuyStorageForm();
+        });
+
+        // Create Folder button
+        $('#createFolderBtn').on('click', async (e) => {
+            e.preventDefault();
+            handleMenuClick(e.currentTarget);
+            showCreateFolderForm();
         });
 
         // View Files button
