@@ -214,9 +214,8 @@ export function getLoadingTemplate(): string {
  * Storage Stats Template
  */
 export function getStorageStatsTemplate(
-    address: string,
     totalStorageBytes: string,
-    activeStorageBytes: string,
+    remainingTime: string,
     subscriptions: Array<{
         id: string;
         storage_bytes: string;
@@ -320,17 +319,13 @@ export function getStorageStatsTemplate(
                 </div>
                 
                 <div class="row mb-3">
-                    <div class="col-md-12 mb-2">
-                        <small class="text-muted">Address:</small>
-                        <div><code>${address}</code></div>
-                    </div>
                     <div class="col-md-6">
                         <small class="text-muted">Total Storage:</small>
                         <div><strong>${totalStorageBytes}</strong></div>
                     </div>
                     <div class="col-md-6">
-                        <small class="text-muted">Active Storage:</small>
-                        <div><strong>${activeStorageBytes}</strong></div>
+                        <small class="text-muted">Remaining Time:</small>
+                        <div><strong>${remainingTime}</strong></div>
                     </div>
                 </div>
                 

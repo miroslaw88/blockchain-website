@@ -40,37 +40,38 @@ export async function fetchStorageStats(
         
         // Parse response - handle both snake_case and camelCase
         const address = data.address || walletAddress;
-        const totalStorageBytes = parseInt(data.total_storage_bytes || data.totalStorageBytes || '0', 10);
-        const activeStorageBytes = parseInt(data.active_storage_bytes || data.activeStorageBytes || '0', 10);
+        
+        // Parse subscription (single object)
+        const sub = data.subscription;
+        const subscription = {
+            id: sub.id || '',
+            storage_bytes: sub.storage_bytes || sub.storageBytes || '0',
+            start_time: sub.start_time || sub.startTime || '0',
+            end_time: sub.end_time || sub.endTime || '0',
+            duration_seconds: sub.duration_seconds || sub.durationSeconds || '0',
+            remaining_seconds: sub.remaining_seconds || sub.remainingSeconds || '0',
+            is_active: sub.is_active !== undefined ? sub.is_active : (sub.isActive !== undefined ? sub.isActive : false)
+        };
+        
+        // Derive total storage from subscription's storage_bytes
+        const totalStorageBytes = parseInt(subscription.storage_bytes || '0', 10);
         const totalStorageFormatted = formatFileSize(totalStorageBytes);
-        const activeStorageFormatted = formatFileSize(activeStorageBytes);
         
-        // Parse subscription (now a single object instead of array)
-        const subscriptionData = data.subscription || data.subscriptions || null;
-        let subscription = null;
-        
-        if (subscriptionData) {
-            // Handle both single object and array (for backwards compatibility)
-            const sub = Array.isArray(subscriptionData) ? subscriptionData[0] : subscriptionData;
-            subscription = {
-                id: sub.id || '',
-                storage_bytes: sub.storage_bytes || sub.storageBytes || '0',
-                start_time: sub.start_time || sub.startTime || '0',
-                end_time: sub.end_time || sub.endTime || '0',
-                duration_seconds: sub.duration_seconds || sub.durationSeconds || '0',
-                remaining_seconds: sub.remaining_seconds || sub.remainingSeconds || '0',
-                is_active: sub.is_active !== undefined ? sub.is_active : (sub.isActive !== undefined ? sub.isActive : false)
-            };
-        }
+        // Format remaining time
+        const remainingSeconds = parseInt(subscription.remaining_seconds || '0', 10);
+        const daysRemaining = Math.floor(remainingSeconds / 86400);
+        const hoursRemaining = Math.floor((remainingSeconds % 86400) / 3600);
+        const remainingTime = remainingSeconds > 0 
+            ? `${daysRemaining} days, ${hoursRemaining} hours`
+            : 'Expired';
         
         // Convert to array format for template (which expects array but only uses first item)
-        const subscriptions = subscription ? [subscription] : [];
+        const subscriptions = [subscription];
         
         // Update stats area with all data
         $statsArea.html(getStorageStatsTemplate(
-            address,
             totalStorageFormatted,
-            activeStorageFormatted,
+            remainingTime,
             subscriptions
         ));
         
@@ -103,9 +104,8 @@ export async function fetchStorageStats(
         console.error('Error fetching storage stats:', error);
         // Show default stats on error
         $statsArea.html(getStorageStatsTemplate(
-            walletAddress,
             'Unknown',
-            'Unknown',
+            'N/A',
             []
         ));
         $('#buyStorageBtn').off('click').on('click', () => {
