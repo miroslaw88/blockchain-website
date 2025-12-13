@@ -217,32 +217,155 @@ export function getLoadingTemplate(): string {
 /**
  * Storage Stats Template
  */
-export function getStorageStatsTemplate(storageAmount: string, expirationDate: string): string {
+export function getStorageStatsTemplate(
+    address: string,
+    totalStorageBytes: string,
+    activeStorageBytes: string,
+    subscriptions: Array<{
+        id: string;
+        storage_bytes: string;
+        start_time: string;
+        end_time: string;
+        duration_seconds: string;
+        remaining_seconds: string;
+        is_active: boolean;
+    }>
+): string {
+    // Assume there's always 1 subscription
+    const sub = subscriptions.length > 0 ? subscriptions[0] : null;
+    
+    let subscriptionDetailsHTML = '';
+    if (sub) {
+        const storageBytes = parseInt(sub.storage_bytes || '0', 10);
+        const startTime = parseInt(sub.start_time || '0', 10);
+        const endTime = parseInt(sub.end_time || '0', 10);
+        const remainingSeconds = parseInt(sub.remaining_seconds || '0', 10);
+        const durationSeconds = parseInt(sub.duration_seconds || '0', 10);
+        
+        // Format storage size
+        const storageSize = formatFileSizeForTemplate(storageBytes);
+        
+        // Format dates
+        const startDate = startTime > 0 ? formatDateForTemplate(startTime) : 'N/A';
+        const endDate = endTime > 0 ? formatDateForTemplate(endTime) : 'N/A';
+        
+        // Format remaining time
+        const daysRemaining = Math.floor(remainingSeconds / 86400);
+        const hoursRemaining = Math.floor((remainingSeconds % 86400) / 3600);
+        const remainingTime = remainingSeconds > 0 
+            ? `${daysRemaining} days, ${hoursRemaining} hours`
+            : 'Expired';
+        
+        // Format duration
+        const durationDays = Math.floor(durationSeconds / 86400);
+        
+        const statusBadge = sub.is_active 
+            ? '<span class="badge bg-success">Active</span>'
+            : '<span class="badge bg-secondary">Expired</span>';
+        
+        subscriptionDetailsHTML = `
+            <div class="card mb-2 ${sub.is_active ? 'border-success' : 'border-secondary'}">
+                <div class="card-body p-3">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div>
+                            <h6 class="mb-1">Subscription ${statusBadge}</h6>
+                            <small class="text-muted">ID: ${sub.id}</small>
+                        </div>
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-md-6">
+                            <small class="text-muted">Storage:</small>
+                            <div><strong>${storageSize}</strong></div>
+                        </div>
+                        <div class="col-md-6">
+                            <small class="text-muted">Duration:</small>
+                            <div><strong>${durationDays} days</strong></div>
+                        </div>
+                        <div class="col-md-6">
+                            <small class="text-muted">Start:</small>
+                            <div><strong>${startDate}</strong></div>
+                        </div>
+                        <div class="col-md-6">
+                            <small class="text-muted">End:</small>
+                            <div><strong>${endDate}</strong></div>
+                        </div>
+                        <div class="col-md-12">
+                            <small class="text-muted">Remaining:</small>
+                            <div><strong>${remainingTime}</strong></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    } else {
+        subscriptionDetailsHTML = '<p class="text-muted mb-0">No subscription found</p>';
+    }
+    
     return `
         <div class="card mb-3">
             <div class="card-body">
-                <div class="row align-items-center">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="mb-0">Storage Statistics</h5>
+                    <button class="btn btn-primary" id="buyStorageBtn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="me-1">
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                        </svg>
+                        Buy Storage
+                    </button>
+                </div>
+                
+                <div class="row mb-3">
+                    <div class="col-md-12 mb-2">
+                        <small class="text-muted">Address:</small>
+                        <div><code>${address}</code></div>
+                    </div>
                     <div class="col-md-6">
-                        <h6 class="mb-1">Storage Amount</h6>
-                        <p class="mb-0 text-muted" id="storageAmount">${storageAmount}</p>
+                        <small class="text-muted">Total Storage:</small>
+                        <div><strong>${totalStorageBytes}</strong></div>
                     </div>
-                    <div class="col-md-4">
-                        <h6 class="mb-1">Expiration</h6>
-                        <p class="mb-0 text-muted" id="storageExpiration">${expirationDate}</p>
+                    <div class="col-md-6">
+                        <small class="text-muted">Active Storage:</small>
+                        <div><strong>${activeStorageBytes}</strong></div>
                     </div>
-                    <div class="col-md-2 text-end">
-                        <button class="btn btn-primary" id="buyStorageBtn">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="me-1">
-                                <line x1="12" y1="5" x2="12" y2="19"></line>
-                                <line x1="5" y1="12" x2="19" y2="12"></line>
-                            </svg>
-                            Buy Storage
-                        </button>
-                    </div>
+                </div>
+                
+                <hr>
+                
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h6 class="mb-0">Subscription Details</h6>
+                    <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#subscriptionDetails" aria-expanded="false" aria-controls="subscriptionDetails" id="toggleSubscriptionBtn">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="me-1">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                        Show Details
+                    </button>
+                </div>
+                <div class="collapse" id="subscriptionDetails">
+                    ${subscriptionDetailsHTML}
                 </div>
             </div>
         </div>
     `;
+}
+
+// Helper functions for template (inline to avoid circular dependencies)
+function formatFileSizeForTemplate(bytes: number): string {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+}
+
+function formatDateForTemplate(timestamp: number): string {
+    if (!timestamp || timestamp === 0) return 'N/A';
+    const date = new Date(timestamp * 1000);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const time = date.toLocaleTimeString();
+    return `${year}-${month}-${day} ${time}`;
 }
 
 /**

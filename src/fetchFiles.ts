@@ -4,6 +4,7 @@ import { downloadFile } from './downloadFile';
 import { createDirectory } from './createDirectory';
 import { deleteFile } from './deleteFile';
 import { deleteDirectory } from './deleteDirectory';
+import { formatDate } from './utils';
 import {
     getFilesViewTemplate,
     getEmptyStateTemplate,
@@ -146,20 +147,6 @@ function formatFileSize(bytes: number): string {
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
 }
-
-// Format date as YYYY-MM-DD with time
-function formatDate(timestamp: number): string {
-    if (!timestamp || timestamp === 0) {
-        return 'N/A';
-    }
-    const date = new Date(timestamp * 1000);
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    const time = date.toLocaleTimeString();
-    return `${year}-${month}-${day} ${time}`;
-}
-
 
 // Fetch files from blockchain
 // path: Optional path to navigate into a specific folder (e.g., "/test/")

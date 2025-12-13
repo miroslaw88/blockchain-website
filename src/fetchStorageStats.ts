@@ -1,5 +1,6 @@
 // Fetch storage stats from blockchain
 
+import { formatDate } from './utils';
 import { getStorageStatsTemplate } from './templates';
 
 // Helper function to format file size
@@ -36,52 +37,62 @@ export async function fetchStorageStats(
         const data = await response.json();
         
         // Parse response - handle both snake_case and camelCase
+        const address = data.address || walletAddress;
         const totalStorageBytes = parseInt(data.total_storage_bytes || data.totalStorageBytes || '0', 10);
         const activeStorageBytes = parseInt(data.active_storage_bytes || data.activeStorageBytes || '0', 10);
-        const storageAmount = formatFileSize(activeStorageBytes);
+        const totalStorageFormatted = formatFileSize(totalStorageBytes);
+        const activeStorageFormatted = formatFileSize(activeStorageBytes);
         
-        // Get expiration date from subscriptions
-        // Based on shell script: subscriptions have end_time field
-        let expirationDate = 'N/A';
-        const subscriptions = data.subscriptions || [];
-        if (subscriptions.length > 0) {
-            // Find the latest expiration (end_time) from active subscriptions
-            const activeSubscriptions = subscriptions.filter((sub: any) => 
-                sub.is_active || sub.isActive === true
-            );
-            
-            if (activeSubscriptions.length > 0) {
-                // Get the latest end_time from active subscriptions
-                const latestExpiration = activeSubscriptions
-                    .map((sub: any) => {
-                        // Handle both snake_case and camelCase, and both string and number formats
-                        const endTime = sub.end_time || sub.endTime || '0';
-                        return typeof endTime === 'string' ? parseInt(endTime, 10) : endTime;
-                    })
-                    .filter((exp: number) => exp > 0)
-                    .sort((a: number, b: number) => b - a)[0];
-                
-                if (latestExpiration) {
-                    // end_time is in seconds (Unix timestamp)
-                    expirationDate = new Date(latestExpiration * 1000).toLocaleDateString();
-                }
-            } else {
-                // No active subscriptions
-                expirationDate = 'No active subscriptions';
-            }
-        }
+        // Parse subscriptions array
+        const subscriptions = (data.subscriptions || []).map((sub: any) => ({
+            id: sub.id || '',
+            storage_bytes: sub.storage_bytes || sub.storageBytes || '0',
+            start_time: sub.start_time || sub.startTime || '0',
+            end_time: sub.end_time || sub.endTime || '0',
+            duration_seconds: sub.duration_seconds || sub.durationSeconds || '0',
+            remaining_seconds: sub.remaining_seconds || sub.remainingSeconds || '0',
+            is_active: sub.is_active !== undefined ? sub.is_active : (sub.isActive !== undefined ? sub.isActive : false)
+        }));
         
-        // Update stats area
-        $statsArea.html(getStorageStatsTemplate(storageAmount, expirationDate));
+        // Update stats area with all data
+        $statsArea.html(getStorageStatsTemplate(
+            address,
+            totalStorageFormatted,
+            activeStorageFormatted,
+            subscriptions
+        ));
         
         // Set up buy storage button click handler
         $('#buyStorageBtn').off('click').on('click', () => {
             onBuyStorageClick();
         });
+        
+        // Set up collapse toggle button text update
+        $('#subscriptionDetails').on('show.bs.collapse', function () {
+            $('#toggleSubscriptionBtn').html(`
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="me-1">
+                    <polyline points="18 15 12 9 6 15"></polyline>
+                </svg>
+                Hide Details
+            `);
+        });
+        $('#subscriptionDetails').on('hide.bs.collapse', function () {
+            $('#toggleSubscriptionBtn').html(`
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="me-1">
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+                Show Details
+            `);
+        });
     } catch (error) {
         console.error('Error fetching storage stats:', error);
         // Show default stats on error
-        $statsArea.html(getStorageStatsTemplate('Unknown', 'N/A'));
+        $statsArea.html(getStorageStatsTemplate(
+            walletAddress,
+            'Unknown',
+            'Unknown',
+            []
+        ));
         $('#buyStorageBtn').off('click').on('click', () => {
             onBuyStorageClick();
         });
