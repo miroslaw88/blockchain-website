@@ -232,6 +232,51 @@ export interface MsgCreateDirectoryResponse {
   createdAt: number;
 }
 
+/**
+ * MsgDeleteFile is the Msg/DeleteFile request type.
+ * This message is used to delete a file for an owner.
+ * Indexer nodes will listen to the emitted event and delete the file from their local storage.
+ */
+export interface MsgDeleteFile {
+  /** owner is the address that owns the file. */
+  owner: string;
+  /** merkle_root is the Merkle root hash of the file to delete. */
+  merkleRoot: string;
+}
+
+/**
+ * MsgDeleteFileResponse defines the response structure for executing a
+ * MsgDeleteFile message.
+ */
+export interface MsgDeleteFileResponse {
+  /** deleted_at is the Unix timestamp when the file was deleted (seconds). */
+  deletedAt: number;
+}
+
+/**
+ * MsgDeleteDirectory is the Msg/DeleteDirectory request type.
+ * This message is used to delete a directory for an owner.
+ * Indexer nodes will listen to the emitted event and recursively delete the directory and all its contents.
+ */
+export interface MsgDeleteDirectory {
+  /** owner is the address that owns the directory. */
+  owner: string;
+  /**
+   * path is the directory path to delete (e.g., "/documents/folder1").
+   * Must be a valid path starting with "/".
+   */
+  path: string;
+}
+
+/**
+ * MsgDeleteDirectoryResponse defines the response structure for executing a
+ * MsgDeleteDirectory message.
+ */
+export interface MsgDeleteDirectoryResponse {
+  /** deleted_at is the Unix timestamp when the directory was deleted (seconds). */
+  deletedAt: number;
+}
+
 function createBaseMsgUpdateParams(): MsgUpdateParams {
   return { authority: "", params: undefined };
 }
@@ -1663,6 +1708,274 @@ export const MsgCreateDirectoryResponse: MessageFns<MsgCreateDirectoryResponse> 
   },
 };
 
+function createBaseMsgDeleteFile(): MsgDeleteFile {
+  return { owner: "", merkleRoot: "" };
+}
+
+export const MsgDeleteFile: MessageFns<MsgDeleteFile> = {
+  encode(message: MsgDeleteFile, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.owner !== "") {
+      writer.uint32(10).string(message.owner);
+    }
+    if (message.merkleRoot !== "") {
+      writer.uint32(18).string(message.merkleRoot);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): MsgDeleteFile {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseMsgDeleteFile();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.owner = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.merkleRoot = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): MsgDeleteFile {
+    return {
+      owner: isSet(object.owner) ? globalThis.String(object.owner) : "",
+      merkleRoot: isSet(object.merkleRoot) ? globalThis.String(object.merkleRoot) : "",
+    };
+  },
+
+  toJSON(message: MsgDeleteFile): unknown {
+    const obj: any = {};
+    if (message.owner !== "") {
+      obj.owner = message.owner;
+    }
+    if (message.merkleRoot !== "") {
+      obj.merkleRoot = message.merkleRoot;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<MsgDeleteFile>, I>>(base?: I): MsgDeleteFile {
+    return MsgDeleteFile.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<MsgDeleteFile>, I>>(object: I): MsgDeleteFile {
+    const message = createBaseMsgDeleteFile();
+    message.owner = object.owner ?? "";
+    message.merkleRoot = object.merkleRoot ?? "";
+    return message;
+  },
+};
+
+function createBaseMsgDeleteFileResponse(): MsgDeleteFileResponse {
+  return { deletedAt: 0 };
+}
+
+export const MsgDeleteFileResponse: MessageFns<MsgDeleteFileResponse> = {
+  encode(message: MsgDeleteFileResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.deletedAt !== 0) {
+      writer.uint32(8).int64(message.deletedAt);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): MsgDeleteFileResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseMsgDeleteFileResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.deletedAt = longToNumber(reader.int64());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): MsgDeleteFileResponse {
+    return { deletedAt: isSet(object.deletedAt) ? globalThis.Number(object.deletedAt) : 0 };
+  },
+
+  toJSON(message: MsgDeleteFileResponse): unknown {
+    const obj: any = {};
+    if (message.deletedAt !== 0) {
+      obj.deletedAt = Math.round(message.deletedAt);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<MsgDeleteFileResponse>, I>>(base?: I): MsgDeleteFileResponse {
+    return MsgDeleteFileResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<MsgDeleteFileResponse>, I>>(object: I): MsgDeleteFileResponse {
+    const message = createBaseMsgDeleteFileResponse();
+    message.deletedAt = object.deletedAt ?? 0;
+    return message;
+  },
+};
+
+function createBaseMsgDeleteDirectory(): MsgDeleteDirectory {
+  return { owner: "", path: "" };
+}
+
+export const MsgDeleteDirectory: MessageFns<MsgDeleteDirectory> = {
+  encode(message: MsgDeleteDirectory, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.owner !== "") {
+      writer.uint32(10).string(message.owner);
+    }
+    if (message.path !== "") {
+      writer.uint32(18).string(message.path);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): MsgDeleteDirectory {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseMsgDeleteDirectory();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.owner = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.path = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): MsgDeleteDirectory {
+    return {
+      owner: isSet(object.owner) ? globalThis.String(object.owner) : "",
+      path: isSet(object.path) ? globalThis.String(object.path) : "",
+    };
+  },
+
+  toJSON(message: MsgDeleteDirectory): unknown {
+    const obj: any = {};
+    if (message.owner !== "") {
+      obj.owner = message.owner;
+    }
+    if (message.path !== "") {
+      obj.path = message.path;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<MsgDeleteDirectory>, I>>(base?: I): MsgDeleteDirectory {
+    return MsgDeleteDirectory.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<MsgDeleteDirectory>, I>>(object: I): MsgDeleteDirectory {
+    const message = createBaseMsgDeleteDirectory();
+    message.owner = object.owner ?? "";
+    message.path = object.path ?? "";
+    return message;
+  },
+};
+
+function createBaseMsgDeleteDirectoryResponse(): MsgDeleteDirectoryResponse {
+  return { deletedAt: 0 };
+}
+
+export const MsgDeleteDirectoryResponse: MessageFns<MsgDeleteDirectoryResponse> = {
+  encode(message: MsgDeleteDirectoryResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.deletedAt !== 0) {
+      writer.uint32(8).int64(message.deletedAt);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): MsgDeleteDirectoryResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseMsgDeleteDirectoryResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.deletedAt = longToNumber(reader.int64());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): MsgDeleteDirectoryResponse {
+    return { deletedAt: isSet(object.deletedAt) ? globalThis.Number(object.deletedAt) : 0 };
+  },
+
+  toJSON(message: MsgDeleteDirectoryResponse): unknown {
+    const obj: any = {};
+    if (message.deletedAt !== 0) {
+      obj.deletedAt = Math.round(message.deletedAt);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<MsgDeleteDirectoryResponse>, I>>(base?: I): MsgDeleteDirectoryResponse {
+    return MsgDeleteDirectoryResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<MsgDeleteDirectoryResponse>, I>>(object: I): MsgDeleteDirectoryResponse {
+    const message = createBaseMsgDeleteDirectoryResponse();
+    message.deletedAt = object.deletedAt ?? 0;
+    return message;
+  },
+};
+
 /** Msg defines the Msg service. */
 export interface Msg {
   /**
@@ -1699,6 +2012,16 @@ export interface Msg {
    * Indexer nodes will listen to this event and create the directory in their local storage.
    */
   CreateDirectory(request: MsgCreateDirectory): Promise<MsgCreateDirectoryResponse>;
+  /**
+   * DeleteFile deletes a file for an owner.
+   * Indexer nodes will listen to this event and delete the file from their local storage.
+   */
+  DeleteFile(request: MsgDeleteFile): Promise<MsgDeleteFileResponse>;
+  /**
+   * DeleteDirectory deletes a directory for an owner.
+   * Indexer nodes will listen to this event and recursively delete the directory and all its contents.
+   */
+  DeleteDirectory(request: MsgDeleteDirectory): Promise<MsgDeleteDirectoryResponse>;
 }
 
 export const MsgServiceName = "osdblockchain.osdblockchain.v1.Msg";
@@ -1717,6 +2040,8 @@ export class MsgClientImpl implements Msg {
     this.DeregisterIndexer = this.DeregisterIndexer.bind(this);
     this.RegisterStorageProvider = this.RegisterStorageProvider.bind(this);
     this.CreateDirectory = this.CreateDirectory.bind(this);
+    this.DeleteFile = this.DeleteFile.bind(this);
+    this.DeleteDirectory = this.DeleteDirectory.bind(this);
   }
   UpdateParams(request: MsgUpdateParams): Promise<MsgUpdateParamsResponse> {
     const data = MsgUpdateParams.encode(request).finish();
@@ -1770,6 +2095,18 @@ export class MsgClientImpl implements Msg {
     const data = MsgCreateDirectory.encode(request).finish();
     const promise = this.rpc.request(this.service, "CreateDirectory", data);
     return promise.then((data) => MsgCreateDirectoryResponse.decode(new BinaryReader(data)));
+  }
+
+  DeleteFile(request: MsgDeleteFile): Promise<MsgDeleteFileResponse> {
+    const data = MsgDeleteFile.encode(request).finish();
+    const promise = this.rpc.request(this.service, "DeleteFile", data);
+    return promise.then((data) => MsgDeleteFileResponse.decode(new BinaryReader(data)));
+  }
+
+  DeleteDirectory(request: MsgDeleteDirectory): Promise<MsgDeleteDirectoryResponse> {
+    const data = MsgDeleteDirectory.encode(request).finish();
+    const promise = this.rpc.request(this.service, "DeleteDirectory", data);
+    return promise.then((data) => MsgDeleteDirectoryResponse.decode(new BinaryReader(data)));
   }
 }
 

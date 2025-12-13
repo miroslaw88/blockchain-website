@@ -2,6 +2,8 @@
 
 import { downloadFile } from './downloadFile';
 import { createDirectory } from './createDirectory';
+import { deleteFile } from './deleteFile';
+import { deleteDirectory } from './deleteDirectory';
 import {
     getFilesViewTemplate,
     getEmptyStateTemplate,
@@ -411,6 +413,10 @@ function attachEventHandlers(walletAddress: string, currentPath: string): void {
     // Remove any existing handlers first to prevent duplicates
     $contentArea.off('click', '.folder-thumbnail');
     $contentArea.on('click', '.folder-thumbnail', function(e) {
+        // Don't navigate if clicking on the delete button
+        if ($(e.target).closest('.delete-folder-btn').length > 0) {
+            return;
+        }
         e.preventDefault();
         e.stopPropagation(); // Prevent event bubbling
         const $folder = $(this);
@@ -437,6 +443,86 @@ function attachEventHandlers(walletAddress: string, currentPath: string): void {
         }
         console.log('Navigating to path:', targetPath);
         fetchFiles(walletAddress, targetPath);
+    });
+    
+    // Add click handler for delete file buttons
+    $contentArea.off('click', '.delete-file-btn');
+    $contentArea.on('click', '.delete-file-btn', async function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const $button = $(this);
+        const merkleRoot = $button.attr('data-merkle-root');
+        const fileName = $button.attr('data-file-name') || 'file';
+        
+        if (!merkleRoot) {
+            showToast('File identifier not found', 'error');
+            return;
+        }
+        
+        // Show confirmation dialog
+        if (!confirm(`Are you sure you want to delete "${fileName}"?\n\nThis action cannot be undone.`)) {
+            return;
+        }
+        
+        // Disable button during deletion
+        $button.prop('disabled', true);
+        const originalHTML = $button.html();
+        $button.html('<span class="spinner-border spinner-border-sm" role="status"></span>');
+        
+        try {
+            await deleteFile(merkleRoot);
+            showToast(`File "${fileName}" deleted successfully`, 'success');
+            
+            // Refresh files list
+            await fetchFiles(walletAddress, currentPath);
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Delete file failed';
+            console.error('Delete file error:', error);
+            showToast(`Delete failed: ${errorMessage}`, 'error');
+        } finally {
+            $button.prop('disabled', false);
+            $button.html(originalHTML);
+        }
+    });
+    
+    // Add click handler for delete folder buttons
+    $contentArea.off('click', '.delete-folder-btn');
+    $contentArea.on('click', '.delete-folder-btn', async function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const $button = $(this);
+        const folderPath = $button.attr('data-folder-path');
+        const folderName = $button.attr('data-folder-name') || 'folder';
+        
+        if (!folderPath) {
+            showToast('Folder path not found', 'error');
+            return;
+        }
+        
+        // Show confirmation dialog
+        if (!confirm(`Are you sure you want to delete folder "${folderName}"?\n\nThis will delete the folder and ALL its contents recursively.\n\nThis action cannot be undone.`)) {
+            return;
+        }
+        
+        // Disable button during deletion
+        $button.prop('disabled', true);
+        const originalHTML = $button.html();
+        $button.html('<span class="spinner-border spinner-border-sm" role="status"></span>');
+        
+        try {
+            await deleteDirectory(folderPath);
+            showToast(`Folder "${folderName}" deleted successfully`, 'success');
+            
+            // Refresh files list
+            await fetchFiles(walletAddress, currentPath);
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Delete folder failed';
+            console.error('Delete folder error:', error);
+            showToast(`Delete failed: ${errorMessage}`, 'error');
+        } finally {
+            $button.prop('disabled', false);
+            $button.html(originalHTML);
+        }
     });
 }
 

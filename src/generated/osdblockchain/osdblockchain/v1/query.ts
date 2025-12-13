@@ -76,6 +76,12 @@ export interface QueryFileResponse {
 export interface QueryFilesByOwnerRequest {
   /** owner is the address of the file owner. */
   owner: string;
+  /**
+   * path is the directory path to filter files/folders (required).
+   * Use "/" for root directory to get all files and folders.
+   * Path should be normalized (e.g., "/documents/folder1/").
+   */
+  path: string;
   /** pagination defines an optional pagination for the request. */
   pagination: PageRequest | undefined;
 }
@@ -832,13 +838,16 @@ export const QueryFileResponse: MessageFns<QueryFileResponse> = {
 };
 
 function createBaseQueryFilesByOwnerRequest(): QueryFilesByOwnerRequest {
-  return { owner: "", pagination: undefined };
+  return { owner: "", path: "", pagination: undefined };
 }
 
 export const QueryFilesByOwnerRequest: MessageFns<QueryFilesByOwnerRequest> = {
   encode(message: QueryFilesByOwnerRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.owner !== "") {
       writer.uint32(10).string(message.owner);
+    }
+    if (message.path !== "") {
+      writer.uint32(26).string(message.path);
     }
     if (message.pagination !== undefined) {
       PageRequest.encode(message.pagination, writer.uint32(18).fork()).join();
@@ -861,6 +870,14 @@ export const QueryFilesByOwnerRequest: MessageFns<QueryFilesByOwnerRequest> = {
           message.owner = reader.string();
           continue;
         }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.path = reader.string();
+          continue;
+        }
         case 2: {
           if (tag !== 18) {
             break;
@@ -881,6 +898,7 @@ export const QueryFilesByOwnerRequest: MessageFns<QueryFilesByOwnerRequest> = {
   fromJSON(object: any): QueryFilesByOwnerRequest {
     return {
       owner: isSet(object.owner) ? globalThis.String(object.owner) : "",
+      path: isSet(object.path) ? globalThis.String(object.path) : "",
       pagination: isSet(object.pagination) ? PageRequest.fromJSON(object.pagination) : undefined,
     };
   },
@@ -889,6 +907,9 @@ export const QueryFilesByOwnerRequest: MessageFns<QueryFilesByOwnerRequest> = {
     const obj: any = {};
     if (message.owner !== "") {
       obj.owner = message.owner;
+    }
+    if (message.path !== "") {
+      obj.path = message.path;
     }
     if (message.pagination !== undefined) {
       obj.pagination = PageRequest.toJSON(message.pagination);
@@ -902,6 +923,7 @@ export const QueryFilesByOwnerRequest: MessageFns<QueryFilesByOwnerRequest> = {
   fromPartial<I extends Exact<DeepPartial<QueryFilesByOwnerRequest>, I>>(object: I): QueryFilesByOwnerRequest {
     const message = createBaseQueryFilesByOwnerRequest();
     message.owner = object.owner ?? "";
+    message.path = object.path ?? "";
     message.pagination = (object.pagination !== undefined && object.pagination !== null)
       ? PageRequest.fromPartial(object.pagination)
       : undefined;
@@ -2593,7 +2615,10 @@ export interface Query {
   AccountStorage(request: QueryAccountStorageRequest): Promise<QueryAccountStorageResponse>;
   /** File queries file metadata by Merkle root hash. */
   File(request: QueryFileRequest): Promise<QueryFileResponse>;
-  /** FilesByOwner queries all files owned by an address. */
+  /**
+   * FilesByOwner queries all files owned by an address.
+   * Optionally filters by directory path if provided.
+   */
   FilesByOwner(request: QueryFilesByOwnerRequest): Promise<QueryFilesByOwnerResponse>;
   /** FilesByProvider queries all files stored by a provider. */
   FilesByProvider(request: QueryFilesByProviderRequest): Promise<QueryFilesByProviderResponse>;

@@ -62,12 +62,20 @@ export function getFileThumbnailTemplate(
                     <h6 class="card-title mb-1 text-truncate" style="font-size: 0.9rem;" title="${fileName}">${fileName}</h6>
                     <p class="text-muted small mb-1">${fileSize}</p>
                     ${isExpired ? '<span class="badge bg-warning text-dark mb-2">Expired</span>' : ''}
-                    <div class="mt-2">
+                    <div class="mt-2 d-flex gap-2 justify-content-center">
                         <button class="btn btn-sm btn-primary download-btn" data-merkle-root="${merkleRoot}" data-file-name="${fileName}" title="Download">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                                 <polyline points="7 10 12 15 17 10"></polyline>
                                 <line x1="12" y1="15" x2="12" y2="3"></line>
+                            </svg>
+                        </button>
+                        <button class="btn btn-sm btn-danger delete-file-btn" data-merkle-root="${merkleRoot}" data-file-name="${fileName}" title="Delete">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="3 6 5 6 21 6"></polyline>
+                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                <line x1="10" y1="11" x2="10" y2="17"></line>
+                                <line x1="14" y1="11" x2="14" y2="17"></line>
                             </svg>
                         </button>
                     </div>
@@ -98,8 +106,16 @@ export function getFolderThumbnailTemplate(
                     </div>
                     <h6 class="card-title mb-1 text-truncate" style="font-size: 0.9rem;" title="${folderName}">${folderName}</h6>
                     <p class="text-muted small mb-1">Folder</p>
-                    <div class="mt-2">
+                    <div class="mt-2 d-flex gap-2 justify-content-center">
                         <span class="badge bg-info">Directory</span>
+                        <button class="btn btn-sm btn-danger delete-folder-btn" data-folder-path="${folderPath}" data-folder-name="${folderName}" title="Delete Folder">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="3 6 5 6 21 6"></polyline>
+                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                <line x1="10" y1="11" x2="10" y2="17"></line>
+                                <line x1="14" y1="11" x2="14" y2="17"></line>
+                            </svg>
+                        </button>
                     </div>
                 </div>
                 <div class="card-footer bg-transparent border-0 pt-0 pb-2">
