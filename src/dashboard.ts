@@ -386,115 +386,54 @@ export namespace Dashboard {
     }
 
 
-    // Helper function to add uploading file entry to files list
-    function addUploadingFileEntry(file: File, uploadId: string): void {
-        const $contentArea = $('#contentArea');
-        const $card = $contentArea.find('.card');
-        const $filesRow = $contentArea.find('.row');
-        
-        // Check if the files view template exists (has the proper header with create folder button)
-        const $filesViewCard = $card.filter((i, el) => {
-            return $(el).find('#createFolderToolbarBtn').length > 0;
-        });
-        
-        if ($filesViewCard.length > 0) {
-            // Files view template exists - reuse it
-            // Find or create the .row element
-            let $row = $filesViewCard.find('.row');
-            const $cardBody = $filesViewCard.find('.card-body');
-            
-            if ($row.length === 0) {
-                // No .row exists (empty folder), create it and remove the "No files" message
-                // Remove the "No files or folders found" message but preserve breadcrumbs
-                $cardBody.find('.text-center').remove(); // Remove "No files or folders found" message
-                $row = $('<div class="row mt-3"></div>');
-                $cardBody.append($row);
-            }
-            
-            // Add uploading file to the row
-            $row.append(createUploadingFileHTML(file, uploadId, 0));
-            
-            // Update the file count in the header
-            const $header = $filesViewCard.find('.card-header h5');
-            const currentText = $header.text();
-            const match = currentText.match(/\((\d+) files, (\d+) folders\)/);
-            if (match) {
-                const fileCount = parseInt(match[1], 10) + 1;
-                const folderCount = parseInt(match[2], 10);
-                $header.text(`Files and Folders (${fileCount} files, ${folderCount} folders)`);
-            }
-        } else if ($filesRow.length > 0) {
-            // Files list exists but not the full template, add to existing row
-            $filesRow.append(createUploadingFileHTML(file, uploadId, 0));
-        } else {
-            // No files view exists, need to create it with proper structure
-            // Get current path and wallet address for the template
-            const walletAddress = sessionStorage.getItem('walletAddress') || '';
-            const currentPath = sessionStorage.getItem('currentDirectoryPath') || '/';
-            
-            // Import fetchFiles to get breadcrumbs and other utilities
-            import('./fetchFiles').then(({ fetchFiles }) => {
-                // For now, create a minimal structure that will be replaced when upload completes
-                // But we should preserve the structure
-                $contentArea.html(`
-                    <div class="card">
-                        <div class="card-header d-flex justify-content-between align-items-center">
-                            <h5 class="mb-0">Files and Folders (1 files, 0 folders)</h5>
-                            <div class="d-flex align-items-center gap-2">
-                                <button class="btn btn-sm btn-outline-primary" id="createFolderToolbarBtn" title="Create Folder">
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-                                        <line x1="12" y1="11" x2="12" y2="17"></line>
-                                        <line x1="9" y1="14" x2="15" y2="14"></line>
-                                    </svg>
-                                </button>
-                                <small class="text-muted">${walletAddress}</small>
-                            </div>
-                        </div>
-                        <div class="card-body">
-                            <div class="row mt-3">
-                                ${createUploadingFileHTML(file, uploadId, 0)}
-                            </div>
-                        </div>
-                    </div>
-                `);
-            });
+    // Helper function to show upload progress toast
+    function showUploadProgressToast(file: File, uploadId: string, uploadPath: string): void {
+        const $container = $('#toastContainer');
+        if ($container.length === 0) {
+            // Create container if it doesn't exist
+            $('body').append('<div class="toast-container position-fixed top-0 end-0 p-3" id="toastContainer" style="z-index: 11;"></div>');
         }
-    }
-
-    // Helper function to create HTML for uploading file entry
-    function createUploadingFileHTML(file: File, uploadId: string, progress: number): string {
-        const contentType = file.type || 'application/octet-stream';
+        
         const fileSize = formatFileSize(file.size);
+        const toastId = `upload-toast-${uploadId}`;
+        const displayPath = uploadPath || '/';
         
-        // Use a simple file icon
-        const fileIcon = '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>';
-        
-        return `
-            <div class="col-md-3 col-sm-4 col-6 mb-4" id="uploading-${uploadId}" style="opacity: 0.6;">
-                <div class="card h-100 file-thumbnail" style="transition: transform 0.2s;">
-                    <div class="card-body text-center p-3">
-                        <div class="file-icon mb-2" style="color: #6c757d;">
-                            ${fileIcon}
-                        </div>
-                        <h6 class="card-title mb-1 text-truncate" style="font-size: 0.9rem;" title="${file.name}">${file.name}</h6>
-                        <p class="text-muted small mb-1">${fileSize}</p>
-                        <div class="mt-2">
-                            <div class="progress" style="height: 20px;">
-                                <div id="upload-progress-${uploadId}" class="progress-bar progress-bar-striped progress-bar-animated" 
-                                     role="progressbar" style="width: ${progress}%" aria-valuenow="${progress}" aria-valuemin="0" aria-valuemax="100">
-                                    ${Math.round(progress)}%
-                                </div>
-                            </div>
-                            <small class="text-muted d-block mt-1" id="upload-status-${uploadId}">Preparing...</small>
+        const $toast = $(`
+            <div class="toast bg-primary text-white" role="alert" aria-live="polite" aria-atomic="true" id="${toastId}" data-bs-autohide="false">
+                <div class="toast-header bg-primary text-white border-0">
+                    <strong class="me-auto">📤 Uploading</strong>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast" aria-label="Close"></button>
+                </div>
+                <div class="toast-body">
+                    <div class="mb-2">
+                        <strong>${file.name}</strong>
+                        <small class="d-block text-white-50">${fileSize}</small>
+                        <small class="d-block text-white-50 mt-1">
+                            <span class="text-white-75">Path:</span> <code class="text-white">${displayPath}</code>
+                        </small>
+                    </div>
+                    <div class="progress mb-2" style="height: 20px;">
+                        <div id="upload-progress-${uploadId}" class="progress-bar progress-bar-striped progress-bar-animated bg-success text-white" 
+                             role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                            0%
                         </div>
                     </div>
+                    <small class="d-block" id="upload-status-${uploadId}">Preparing...</small>
                 </div>
             </div>
-        `;
+        `);
+        
+        $('#toastContainer').append($toast);
+        
+        // Initialize and show toast using Bootstrap (don't auto-hide)
+        const toastElement = $toast[0];
+        const toast = new (window as any).bootstrap.Toast(toastElement, {
+            autohide: false // Don't auto-hide - we'll hide it manually when upload completes
+        });
+        toast.show();
     }
 
-    // Helper function to update uploading file progress
+    // Helper function to update uploading file progress in toast
     function updateUploadingFileProgress(uploadId: string, progress: number, status: string): void {
         const $progressBar = $(`#upload-progress-${uploadId}`);
         const $status = $(`#upload-status-${uploadId}`);
@@ -509,20 +448,27 @@ export namespace Dashboard {
         }
     }
 
-    // Helper function to convert uploading file to regular file or remove it
+    // Helper function to remove upload progress toast
     function finalizeUploadingFile(uploadId: string, success: boolean): void {
-        const $uploadingEntry = $(`#uploading-${uploadId}`);
+        const toastId = `upload-toast-${uploadId}`;
+        const $toast = $(`#${toastId}`);
         
-        if (success) {
-            // Remove the uploading entry - files list will be refreshed
-            $uploadingEntry.fadeOut(300, () => {
-                $uploadingEntry.remove();
-            });
-        } else {
-            // On error, remove the entry
-            $uploadingEntry.fadeOut(300, () => {
-                $uploadingEntry.remove();
-            });
+        if ($toast.length > 0) {
+            const toastElement = $toast[0];
+            const toastInstance = (window as any).bootstrap.Toast.getInstance(toastElement);
+            
+            if (toastInstance) {
+                // Hide the toast
+                toastInstance.hide();
+                
+                // Remove toast element after it's hidden
+                $toast.on('hidden.bs.toast', () => {
+                    $toast.remove();
+                });
+            } else {
+                // If toast instance doesn't exist, just remove the element
+                $toast.remove();
+            }
         }
     }
 
@@ -558,8 +504,11 @@ export namespace Dashboard {
         const uploadId = 'upload-' + Date.now();
 
         try {
-            // Add uploading file entry to files list
-            addUploadingFileEntry(file, uploadId);
+            // Get current directory path from sessionStorage (set when navigating folders)
+            let currentPath = sessionStorage.getItem('currentDirectoryPath') || '/';
+            
+            // Show upload progress toast
+            showUploadProgressToast(file, uploadId, currentPath);
             updateUploadingFileProgress(uploadId, 0, 'Connecting to wallet...');
 
             // Step 1: Connect to Keplr
@@ -620,8 +569,11 @@ export namespace Dashboard {
             updateUploadingFileProgress(uploadId, 40, 'Posting transaction to blockchain...');
             const expirationTime = Math.floor(Date.now() / 1000) + 86400 * 30; // 30 days
             
-            // Get current directory path from sessionStorage (set when navigating folders)
-            const currentPath = sessionStorage.getItem('currentDirectoryPath') || '';
+            // Use currentPath already retrieved above
+            // Normalize empty path to empty string (not '/') for metadata
+            if (currentPath === '/') {
+                currentPath = '';
+            }
             
             const metadata = {
                 name: hashedFileName, // Store hashed filename (like OSD system)
@@ -706,13 +658,20 @@ export namespace Dashboard {
             const errorMessage = error instanceof Error ? error.message : 'File upload failed';
             console.error('Upload error:', error);
             
-            // Update uploading entry to show error
-            updateUploadingFileProgress(uploadId, 0, `Error: ${errorMessage}`);
+            // Update toast to show error state
+            const toastId = `upload-toast-${uploadId}`;
+            const $toast = $(`#${toastId}`);
+            if ($toast.length > 0) {
+                // Change toast to error style
+                $toast.removeClass('bg-primary').addClass('bg-danger');
+                $toast.find('.toast-header').removeClass('bg-primary').addClass('bg-danger');
+                updateUploadingFileProgress(uploadId, 0, `Error: ${errorMessage}`);
+            }
             
-            // Remove error entry after a delay
+            // Remove error toast after a delay
             setTimeout(() => {
                 finalizeUploadingFile(uploadId, false);
-            }, 3000);
+            }, 5000);
         } finally {
             // Reset uploading flag
             isUploading = false;
