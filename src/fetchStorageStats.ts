@@ -16,10 +16,12 @@ function formatFileSize(bytes: number): string {
  * Fetch and display storage statistics for a wallet address
  * @param walletAddress - The wallet address to query
  * @param onBuyStorageClick - Callback function to handle buy storage button click
+ * @param onExtendStorageClick - Callback function to handle extend storage button click
  */
 export async function fetchStorageStats(
     walletAddress: string,
-    onBuyStorageClick: () => void
+    onBuyStorageClick: () => void,
+    onExtendStorageClick: () => void
 ): Promise<void> {
     const $statsArea = $('#storageStatsArea');
     if ($statsArea.length === 0) return;
@@ -62,9 +64,12 @@ export async function fetchStorageStats(
             subscriptions
         ));
         
-        // Set up buy storage button click handler
+        // Set up buy/extend storage button click handlers
         $('#buyStorageBtn').off('click').on('click', () => {
             onBuyStorageClick();
+        });
+        $('#extendStorageBtn').off('click').on('click', () => {
+            onExtendStorageClick();
         });
         
         // Set up collapse toggle button text update

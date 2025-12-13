@@ -4,6 +4,8 @@ import { fetchFiles } from './fetchFiles';
 import { buyStorage } from './buyStorage';
 import { postFile } from './postFile';
 import { fetchStorageStats } from './fetchStorageStats';
+import { extendStorageDuration } from './extendStorage';
+import { getExtendStorageModalTemplate } from './templates';
 import { getBuyStorageModalTemplate } from './templates';
 
 export namespace Dashboard {
@@ -215,6 +217,130 @@ export namespace Dashboard {
 
 
     // Show buy storage modal
+    function showExtendStorageModal(): void {
+        // Remove any existing modal
+        $('#extendStorageModal').remove();
+        
+        // Create modal HTML using template
+        const modalHTML = getExtendStorageModalTemplate();
+        
+        // Append modal to body
+        $('body').append(modalHTML);
+        
+        // Initialize Bootstrap modal with static backdrop
+        const modalElement = document.getElementById('extendStorageModal');
+        if (!modalElement) return;
+        
+        const modal = new (window as any).bootstrap.Modal(modalElement, {
+            backdrop: 'static',
+            keyboard: false
+        });
+        modal.show();
+        
+        // Focus on input when modal is shown
+        $(modalElement).on('shown.bs.modal', () => {
+            $('#extendDurationDays').focus();
+        });
+        
+        // Handle form submission
+        $('#extendStorageForm').off('submit').on('submit', async (e) => {
+            e.preventDefault();
+            await handleExtendStorageSubmit(modal);
+        });
+        
+        // Handle Enter key in input field
+        $('#extendStorageForm input').off('keypress').on('keypress', (e: JQuery.KeyPressEvent) => {
+            if (e.which === 13) { // Enter key
+                e.preventDefault();
+                $('#submitExtendStorageBtn').click();
+            }
+        });
+        
+        // Handle cancel button click
+        $('#cancelExtendStorageBtn').off('click').on('click', () => {
+            modal.hide();
+        });
+        
+        // Clean up modal when hidden
+        $(modalElement).on('hidden.bs.modal', () => {
+            $('#extendStorageModal').remove();
+        });
+    }
+
+    // Handle extend storage form submission
+    async function handleExtendStorageSubmit(modal: any): Promise<void> {
+        const $submitBtn = $('#submitExtendStorageBtn');
+        const $cancelBtn = $('#cancelExtendStorageBtn');
+        const $btnText = $('#extendStorageBtnText');
+        const $spinner = $('#extendStorageSpinner');
+        const $status = $('#extendStorageStatus');
+        const $statusText = $('#extendStorageStatusText');
+
+        try {
+            // Get form values
+            const durationDays = parseInt($('#extendDurationDays').val() as string);
+            const payment = ($('#extendPayment').val() as string).trim();
+
+            // Validate inputs
+            if (isNaN(durationDays) || durationDays <= 0) {
+                throw new Error('Invalid duration');
+            }
+            if (!payment) {
+                throw new Error('Payment amount is required');
+            }
+
+            // Show loading state
+            $submitBtn.prop('disabled', true);
+            $cancelBtn.prop('disabled', true);
+            $spinner.removeClass('d-none');
+            $btnText.text('Processing...');
+            $status.removeClass('d-none').addClass('alert-info').removeClass('alert-danger alert-success');
+            $statusText.text('Sending transaction to blockchain...');
+
+            // Execute extend storage transaction
+            const txHash = await extendStorageDuration(durationDays, payment);
+
+            // Update status
+            $statusText.text('Storage extended successfully!');
+            $status.removeClass('d-none alert-info alert-danger').addClass('alert-success');
+            
+            // Show success toast
+            import('./fetchFiles').then((module) => {
+                module.showToast(`Storage extended successfully! Tx: ${txHash.substring(0, 6)}...`, 'success');
+            });
+
+            // Refresh storage stats
+            const walletAddress = sessionStorage.getItem('walletAddress');
+            if (walletAddress) {
+                fetchStorageStats(walletAddress, showBuyStorageModal, showExtendStorageModal);
+            }
+            
+            // Close modal after a brief delay
+            setTimeout(() => {
+                modal.hide();
+            }, 1500);
+
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Extend storage failed';
+            console.error('Extend storage error:', error);
+            
+            // Update status to show error
+            $statusText.text(`Error: ${errorMessage}`);
+            $status.removeClass('d-none alert-info alert-success').addClass('alert-danger');
+            
+            // Show error toast
+            import('./fetchFiles').then((module) => {
+                module.showToast(`Extension failed: ${errorMessage}`, 'error');
+            });
+            
+            // Re-enable buttons so user can try again or cancel
+            $submitBtn.prop('disabled', false);
+            $cancelBtn.prop('disabled', false);
+            $spinner.addClass('d-none');
+            $btnText.text('Extend Storage');
+        }
+    }
+
     function showBuyStorageModal(): void {
         // Remove any existing modal
         $('#buyStorageModal').remove();
@@ -311,7 +437,7 @@ export namespace Dashboard {
                 // Refresh storage stats
                 const walletAddress = sessionStorage.getItem('walletAddress');
                 if (walletAddress) {
-                    fetchStorageStats(walletAddress, showBuyStorageModal);
+                    fetchStorageStats(walletAddress, showBuyStorageModal, showExtendStorageModal);
                 }
             }, 1500);
 
@@ -747,7 +873,7 @@ export namespace Dashboard {
             updateWalletAddressDisplay(walletAddress);
             
             // Fetch and display storage stats
-            fetchStorageStats(walletAddress, showBuyStorageModal);
+            fetchStorageStats(walletAddress, showBuyStorageModal, showExtendStorageModal);
             
             // Fetch files automatically
             fetchFiles(walletAddress);

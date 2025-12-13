@@ -297,17 +297,25 @@ export function getStorageStatsTemplate(
         subscriptionDetailsHTML = '<p class="text-muted mb-0">No subscription found</p>';
     }
     
+    // Determine if subscription is active
+    const hasActiveSubscription = sub && sub.is_active;
+    const buttonId = hasActiveSubscription ? 'extendStorageBtn' : 'buyStorageBtn';
+    const buttonText = hasActiveSubscription ? 'Extend Storage' : 'Buy Storage';
+    const buttonIcon = hasActiveSubscription ? '' : `
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="me-1">
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                        </svg>
+    `;
+    
     return `
         <div class="card mb-3">
             <div class="card-body">
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <h5 class="mb-0">Storage Statistics</h5>
-                    <button class="btn btn-primary" id="buyStorageBtn">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="me-1">
-                            <line x1="12" y1="5" x2="12" y2="19"></line>
-                            <line x1="5" y1="12" x2="19" y2="12"></line>
-                        </svg>
-                        Buy Storage
+                    <button class="btn btn-primary" id="${buttonId}">
+                        ${buttonIcon}
+                        ${buttonText}
                     </button>
                 </div>
                 
@@ -362,6 +370,53 @@ function formatDateForTemplate(timestamp: number): string {
     const day = String(date.getDate()).padStart(2, '0');
     const time = date.toLocaleTimeString();
     return `${year}-${month}-${day} ${time}`;
+}
+
+/**
+ * Extend Storage Modal Template
+ */
+export function getExtendStorageModalTemplate(): string {
+    return `
+        <div class="modal fade" id="extendStorageModal" tabindex="-1" aria-labelledby="extendStorageModalLabel" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header bg-primary text-white">
+                        <h5 class="modal-title" id="extendStorageModalLabel">Extend Storage</h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <form id="extendStorageForm">
+                            <div class="mb-3">
+                                <label for="extendDurationDays" class="form-label">Extension Duration (days)</label>
+                                <input type="number" class="form-control" id="extendDurationDays" 
+                                       placeholder="30" value="30" min="1" required autofocus>
+                                <div class="form-text">Enter the number of days to extend your storage subscription</div>
+                            </div>
+                            <div class="mb-3">
+                                <label for="extendPayment" class="form-label">Payment Amount</label>
+                                <input type="text" class="form-control" id="extendPayment" 
+                                       placeholder="0.1stake" value="0.1stake" required>
+                                <div class="form-text">Enter payment amount (e.g., "0.1stake")</div>
+                            </div>
+                            <div id="extendStorageStatus" class="alert alert-info mt-3 d-none" role="alert">
+                                <div class="d-flex align-items-center">
+                                    <div class="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
+                                    <span id="extendStorageStatusText">Processing transaction...</span>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" id="cancelExtendStorageBtn" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-primary" id="submitExtendStorageBtn" form="extendStorageForm">
+                            <span id="extendStorageBtnText">Extend Storage</span>
+                            <span id="extendStorageSpinner" class="spinner-border spinner-border-sm ms-2 d-none" role="status"></span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
 }
 
 /**
