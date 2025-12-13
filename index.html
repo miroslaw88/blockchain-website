@@ -198,6 +198,28 @@
                 min-height: calc(100% - 3.5rem);
             }
         }
+        /* On narrow screens (mobile), allow vertical scrolling */
+        @media (max-width: 767.98px) {
+            .dashboard-container {
+                overflow-y: auto;
+                height: auto;
+                min-height: calc(100vh - 73px);
+            }
+            .main-content {
+                overflow-y: visible;
+                height: auto;
+                min-height: auto;
+            }
+            #contentArea {
+                overflow-y: visible;
+            }
+            #contentArea > .card {
+                height: auto;
+            }
+            #filesViewContent {
+                overflow-y: visible;
+            }
+        }
     </style>
 </head>
 <body>
