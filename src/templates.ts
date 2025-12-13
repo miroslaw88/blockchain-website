@@ -214,3 +214,92 @@ export function getLoadingTemplate(): string {
     `;
 }
 
+/**
+ * Delete File Modal Template
+ */
+export function getDeleteFileModalTemplate(fileName: string): string {
+    return `
+        <div class="modal fade" id="deleteFileModal" tabindex="-1" aria-labelledby="deleteFileModalLabel" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header bg-danger text-white">
+                        <h5 class="modal-title" id="deleteFileModalLabel">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="me-2">
+                                <polyline points="3 6 5 6 21 6"></polyline>
+                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                            </svg>
+                            Delete File
+                        </h5>
+                    </div>
+                    <div class="modal-body">
+                        <p class="mb-3">Are you sure you want to delete the following file?</p>
+                        <div class="alert alert-warning mb-3">
+                            <strong>${fileName}</strong>
+                        </div>
+                        <p class="text-danger mb-0"><strong>Warning:</strong> This action cannot be undone.</p>
+                        <div id="deleteFileStatus" class="alert alert-info mt-3 d-none" role="alert">
+                            <div class="d-flex align-items-center">
+                                <div class="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
+                                <span id="deleteFileStatusText">Deleting file...</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" id="cancelDeleteFileBtn" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-danger" id="confirmDeleteFileBtn">
+                            <span id="deleteFileBtnText">Delete File</span>
+                            <span id="deleteFileSpinner" class="spinner-border spinner-border-sm ms-2 d-none" role="status"></span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Delete Folder Modal Template
+ */
+export function getDeleteFolderModalTemplate(folderName: string): string {
+    return `
+        <div class="modal fade" id="deleteFolderModal" tabindex="-1" aria-labelledby="deleteFolderModalLabel" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header bg-danger text-white">
+                        <h5 class="modal-title" id="deleteFolderModalLabel">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="me-2">
+                                <polyline points="3 6 5 6 21 6"></polyline>
+                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                            </svg>
+                            Delete Folder
+                        </h5>
+                    </div>
+                    <div class="modal-body">
+                        <p class="mb-3">Are you sure you want to delete the following folder?</p>
+                        <div class="alert alert-warning mb-3">
+                            <strong>${folderName}</strong>
+                        </div>
+                        <div class="alert alert-danger mb-3">
+                            <strong>⚠️ Warning:</strong> This will delete the folder and <strong>ALL</strong> its contents recursively.
+                        </div>
+                        <p class="text-danger mb-0"><strong>This action cannot be undone.</strong></p>
+                        <div id="deleteFolderStatus" class="alert alert-info mt-3 d-none" role="alert">
+                            <div class="d-flex align-items-center">
+                                <div class="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
+                                <span id="deleteFolderStatusText">Deleting folder...</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" id="cancelDeleteFolderBtn" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-danger" id="confirmDeleteFolderBtn">
+                            <span id="deleteFolderBtnText">Delete Folder</span>
+                            <span id="deleteFolderSpinner" class="spinner-border spinner-border-sm ms-2 d-none" role="status"></span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+

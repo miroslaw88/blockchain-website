@@ -11,6 +11,8 @@ import {
     getFolderThumbnailTemplate,
     getEntriesGridTemplate,
     getCreateFolderModalTemplate,
+    getDeleteFileModalTemplate,
+    getDeleteFolderModalTemplate,
     getErrorTemplate,
     getLoadingTemplate
 } from './templates';
@@ -447,7 +449,7 @@ function attachEventHandlers(walletAddress: string, currentPath: string): void {
     
     // Add click handler for delete file buttons
     $contentArea.off('click', '.delete-file-btn');
-    $contentArea.on('click', '.delete-file-btn', async function(e) {
+    $contentArea.on('click', '.delete-file-btn', function(e) {
         e.preventDefault();
         e.stopPropagation();
         const $button = $(this);
@@ -459,35 +461,13 @@ function attachEventHandlers(walletAddress: string, currentPath: string): void {
             return;
         }
         
-        // Show confirmation dialog
-        if (!confirm(`Are you sure you want to delete "${fileName}"?\n\nThis action cannot be undone.`)) {
-            return;
-        }
-        
-        // Disable button during deletion
-        $button.prop('disabled', true);
-        const originalHTML = $button.html();
-        $button.html('<span class="spinner-border spinner-border-sm" role="status"></span>');
-        
-        try {
-            await deleteFile(merkleRoot);
-            showToast(`File "${fileName}" deleted successfully`, 'success');
-            
-            // Refresh files list
-            await fetchFiles(walletAddress, currentPath);
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : 'Delete file failed';
-            console.error('Delete file error:', error);
-            showToast(`Delete failed: ${errorMessage}`, 'error');
-        } finally {
-            $button.prop('disabled', false);
-            $button.html(originalHTML);
-        }
+        // Show delete confirmation modal
+        showDeleteFileModal(merkleRoot, fileName, walletAddress, currentPath);
     });
     
     // Add click handler for delete folder buttons
     $contentArea.off('click', '.delete-folder-btn');
-    $contentArea.on('click', '.delete-folder-btn', async function(e) {
+    $contentArea.on('click', '.delete-folder-btn', function(e) {
         e.preventDefault();
         e.stopPropagation();
         const $button = $(this);
@@ -499,31 +479,193 @@ function attachEventHandlers(walletAddress: string, currentPath: string): void {
             return;
         }
         
-        // Show confirmation dialog
-        if (!confirm(`Are you sure you want to delete folder "${folderName}"?\n\nThis will delete the folder and ALL its contents recursively.\n\nThis action cannot be undone.`)) {
-            return;
-        }
+        // Show delete confirmation modal
+        showDeleteFolderModal(folderPath, folderName, walletAddress, currentPath);
+    });
+}
+
+// Show delete file modal dialog
+function showDeleteFileModal(merkleRoot: string, fileName: string, walletAddress: string, currentPath: string): void {
+    // Remove any existing modal
+    $('#deleteFileModal').remove();
+    
+    // Create modal HTML using template
+    const modalHTML = getDeleteFileModalTemplate(fileName);
+    
+    // Append modal to body
+    $('body').append(modalHTML);
+    
+    // Initialize Bootstrap modal with static backdrop (non-dismissible)
+    const modalElement = document.getElementById('deleteFileModal');
+    if (!modalElement) return;
+    
+    const modal = new (window as any).bootstrap.Modal(modalElement, {
+        backdrop: 'static',
+        keyboard: false
+    });
+    modal.show();
+    
+    // Handle confirm button click
+    $('#confirmDeleteFileBtn').off('click').on('click', async () => {
+        await handleDeleteFile(merkleRoot, fileName, walletAddress, currentPath, modal);
+    });
+    
+    // Handle cancel button click
+    $('#cancelDeleteFileBtn').off('click').on('click', () => {
+        modal.hide();
+    });
+    
+    // Clean up modal when hidden
+    $(modalElement).on('hidden.bs.modal', () => {
+        $('#deleteFileModal').remove();
+    });
+}
+
+// Handle delete file
+async function handleDeleteFile(merkleRoot: string, fileName: string, walletAddress: string, currentPath: string, modal: any): Promise<void> {
+    const $confirmBtn = $('#confirmDeleteFileBtn');
+    const $cancelBtn = $('#cancelDeleteFileBtn');
+    const $btnText = $('#deleteFileBtnText');
+    const $spinner = $('#deleteFileSpinner');
+    const $status = $('#deleteFileStatus');
+    const $statusText = $('#deleteFileStatusText');
+    
+    try {
+        // Disable buttons and show loading state
+        $confirmBtn.prop('disabled', true);
+        $cancelBtn.prop('disabled', true);
+        $spinner.removeClass('d-none');
+        $btnText.text('Deleting...');
+        $status.removeClass('d-none');
+        $statusText.text('Deleting file from blockchain...');
         
-        // Disable button during deletion
-        $button.prop('disabled', true);
-        const originalHTML = $button.html();
-        $button.html('<span class="spinner-border spinner-border-sm" role="status"></span>');
+        // Execute delete file transaction
+        await deleteFile(merkleRoot);
         
-        try {
-            await deleteDirectory(folderPath);
-            showToast(`Folder "${folderName}" deleted successfully`, 'success');
+        // Update status
+        $statusText.text('File deleted successfully!');
+        $status.removeClass('d-none alert-info alert-danger').addClass('alert-success');
+        
+        // Show success toast
+        showToast(`File "${fileName}" deleted successfully`, 'success');
+        
+        // Close modal after a brief delay
+        setTimeout(() => {
+            modal.hide();
             
             // Refresh files list
-            await fetchFiles(walletAddress, currentPath);
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : 'Delete folder failed';
-            console.error('Delete folder error:', error);
-            showToast(`Delete failed: ${errorMessage}`, 'error');
-        } finally {
-            $button.prop('disabled', false);
-            $button.html(originalHTML);
-        }
+            fetchFiles(walletAddress, currentPath);
+        }, 1000);
+        
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Delete file failed';
+        console.error('Delete file error:', error);
+        
+        // Update status to show error
+        $statusText.text(`Error: ${errorMessage}`);
+        $status.removeClass('d-none alert-info alert-success').addClass('alert-danger');
+        
+        // Show error toast
+        showToast(`Delete failed: ${errorMessage}`, 'error');
+        
+        // Re-enable buttons so user can try again or cancel
+        $confirmBtn.prop('disabled', false);
+        $cancelBtn.prop('disabled', false);
+        $spinner.addClass('d-none');
+        $btnText.text('Delete File');
+    }
+}
+
+// Show delete folder modal dialog
+function showDeleteFolderModal(folderPath: string, folderName: string, walletAddress: string, currentPath: string): void {
+    // Remove any existing modal
+    $('#deleteFolderModal').remove();
+    
+    // Create modal HTML using template
+    const modalHTML = getDeleteFolderModalTemplate(folderName);
+    
+    // Append modal to body
+    $('body').append(modalHTML);
+    
+    // Initialize Bootstrap modal with static backdrop (non-dismissible)
+    const modalElement = document.getElementById('deleteFolderModal');
+    if (!modalElement) return;
+    
+    const modal = new (window as any).bootstrap.Modal(modalElement, {
+        backdrop: 'static',
+        keyboard: false
     });
+    modal.show();
+    
+    // Handle confirm button click
+    $('#confirmDeleteFolderBtn').off('click').on('click', async () => {
+        await handleDeleteFolder(folderPath, folderName, walletAddress, currentPath, modal);
+    });
+    
+    // Handle cancel button click
+    $('#cancelDeleteFolderBtn').off('click').on('click', () => {
+        modal.hide();
+    });
+    
+    // Clean up modal when hidden
+    $(modalElement).on('hidden.bs.modal', () => {
+        $('#deleteFolderModal').remove();
+    });
+}
+
+// Handle delete folder
+async function handleDeleteFolder(folderPath: string, folderName: string, walletAddress: string, currentPath: string, modal: any): Promise<void> {
+    const $confirmBtn = $('#confirmDeleteFolderBtn');
+    const $cancelBtn = $('#cancelDeleteFolderBtn');
+    const $btnText = $('#deleteFolderBtnText');
+    const $spinner = $('#deleteFolderSpinner');
+    const $status = $('#deleteFolderStatus');
+    const $statusText = $('#deleteFolderStatusText');
+    
+    try {
+        // Disable buttons and show loading state
+        $confirmBtn.prop('disabled', true);
+        $cancelBtn.prop('disabled', true);
+        $spinner.removeClass('d-none');
+        $btnText.text('Deleting...');
+        $status.removeClass('d-none');
+        $statusText.text('Deleting folder from blockchain...');
+        
+        // Execute delete directory transaction
+        await deleteDirectory(folderPath);
+        
+        // Update status
+        $statusText.text('Folder deleted successfully!');
+        $status.removeClass('d-none alert-info alert-danger').addClass('alert-success');
+        
+        // Show success toast
+        showToast(`Folder "${folderName}" deleted successfully`, 'success');
+        
+        // Close modal after a brief delay
+        setTimeout(() => {
+            modal.hide();
+            
+            // Refresh files list
+            fetchFiles(walletAddress, currentPath);
+        }, 1000);
+        
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Delete folder failed';
+        console.error('Delete folder error:', error);
+        
+        // Update status to show error
+        $statusText.text(`Error: ${errorMessage}`);
+        $status.removeClass('d-none alert-info alert-success').addClass('alert-danger');
+        
+        // Show error toast
+        showToast(`Delete failed: ${errorMessage}`, 'error');
+        
+        // Re-enable buttons so user can try again or cancel
+        $confirmBtn.prop('disabled', false);
+        $cancelBtn.prop('disabled', false);
+        $spinner.addClass('d-none');
+        $btnText.text('Delete Folder');
+    }
 }
 
 // Show create folder modal dialog
