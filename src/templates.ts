@@ -145,7 +145,7 @@ export function getCreateFolderModalTemplate(currentPath: string): string {
     const displayPath = currentPath === '/' ? '/ (root)' : currentPath;
     return `
         <div class="modal fade" id="createFolderModal" tabindex="-1" aria-labelledby="createFolderModalLabel" aria-hidden="true">
-            <div class="modal-dialog">
+            <div class="modal-dialog modal-dialog-centered">
                 <div class="modal-content">
                     <div class="modal-header">
                         <h5 class="modal-title" id="createFolderModalLabel">Create Folder</h5>
@@ -220,7 +220,7 @@ export function getLoadingTemplate(): string {
 export function getDeleteFileModalTemplate(fileName: string): string {
     return `
         <div class="modal fade" id="deleteFileModal" tabindex="-1" aria-labelledby="deleteFileModalLabel" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
-            <div class="modal-dialog">
+            <div class="modal-dialog modal-dialog-centered">
                 <div class="modal-content">
                     <div class="modal-header bg-danger text-white">
                         <h5 class="modal-title" id="deleteFileModalLabel">
@@ -263,7 +263,7 @@ export function getDeleteFileModalTemplate(fileName: string): string {
 export function getDeleteFolderModalTemplate(folderName: string): string {
     return `
         <div class="modal fade" id="deleteFolderModal" tabindex="-1" aria-labelledby="deleteFolderModalLabel" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
-            <div class="modal-dialog">
+            <div class="modal-dialog modal-dialog-centered">
                 <div class="modal-content">
                     <div class="modal-header bg-danger text-white">
                         <h5 class="modal-title" id="deleteFolderModalLabel">
