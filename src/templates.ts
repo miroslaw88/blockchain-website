@@ -310,22 +310,30 @@ export function getStorageStatsTemplate(
     return `
         <div class="card mb-3">
             <div class="card-body">
-                <div class="d-flex justify-content-between align-items-center mb-3">
+                <div class="mb-3">
                     <h5 class="mb-0">Storage Statistics</h5>
-                    <button class="btn btn-primary" id="${buttonId}">
-                        ${buttonIcon}
-                        ${buttonText}
-                    </button>
                 </div>
                 
                 <div class="row mb-3">
                     <div class="col-md-6">
                         <small class="text-muted">Total Storage:</small>
-                        <div><strong>${totalStorageBytes}</strong></div>
+                        <div class="d-flex align-items-center gap-2">
+                            <strong>${totalStorageBytes}</strong>
+                            <button class="btn btn-sm btn-primary" id="buyStorageBtn">
+                                Increase
+                            </button>
+                        </div>
                     </div>
                     <div class="col-md-6">
                         <small class="text-muted">Remaining Time:</small>
-                        <div><strong>${remainingTime}</strong></div>
+                        <div class="d-flex align-items-center gap-2">
+                            <strong>${remainingTime}</strong>
+                            ${hasActiveSubscription ? `
+                            <button class="btn btn-sm btn-primary" id="extendStorageBtn">
+                                Extend
+                            </button>
+                            ` : ''}
+                        </div>
                     </div>
                 </div>
                 
@@ -390,8 +398,8 @@ export function getExtendStorageModalTemplate(): string {
                             <div class="mb-3">
                                 <label for="extendPayment" class="form-label">Payment Amount</label>
                                 <input type="text" class="form-control" id="extendPayment" 
-                                       placeholder="0.1stake" value="0.1stake" required>
-                                <div class="form-text">Enter payment amount (e.g., "0.1stake")</div>
+                                       placeholder="0.0stake" value="0.0stake" readonly>
+                                <div class="form-text">Calculated automatically based on storage size and duration</div>
                             </div>
                             <div id="extendStorageStatus" class="alert alert-info mt-3 d-none" role="alert">
                                 <div class="d-flex align-items-center">
@@ -429,10 +437,10 @@ export function getBuyStorageModalTemplate(): string {
                     <div class="modal-body">
                         <form id="buyStorageForm">
                             <div class="mb-3">
-                                <label for="storageBytes" class="form-label">Storage Size (bytes)</label>
-                                <input type="number" class="form-control" id="storageBytes" 
-                                       placeholder="1000000000" value="1000000000" min="1" required autofocus>
-                                <div class="form-text">Enter the amount of storage in bytes (e.g., 1000000000 = 1GB)</div>
+                                <label for="storageGB" class="form-label">Storage Size (GB)</label>
+                                <input type="number" class="form-control" id="storageGB" 
+                                       placeholder="1" value="1" min="0.01" step="0.01" required autofocus>
+                                <div class="form-text">Enter the amount of storage in gigabytes (GB)</div>
                             </div>
                             <div class="mb-3">
                                 <label for="durationDays" class="form-label">Duration (days)</label>
@@ -443,8 +451,8 @@ export function getBuyStorageModalTemplate(): string {
                             <div class="mb-3">
                                 <label for="payment" class="form-label">Payment Amount</label>
                                 <input type="text" class="form-control" id="payment" 
-                                       placeholder="0.1stake" value="0.1stake" required>
-                                <div class="form-text">Enter payment amount (e.g., "0.1stake")</div>
+                                       placeholder="0.0stake" value="0.0stake" readonly>
+                                <div class="form-text">Calculated automatically based on storage size</div>
                             </div>
                         </form>
                         <div id="buyStorageStatus" class="alert alert-info mt-3 d-none" role="alert">

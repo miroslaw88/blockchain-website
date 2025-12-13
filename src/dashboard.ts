@@ -8,6 +8,26 @@ import { extendStorageDuration } from './extendStorage';
 import { getExtendStorageModalTemplate } from './templates';
 import { getBuyStorageModalTemplate } from './templates';
 
+// Payment calculation constants
+const PRICE_PER_BYTE = 0.0000000001; // $0.0000000001 per byte
+const TOKEN_PRICE = 1.00; // $1.00 per stake token
+
+// Calculate payment for buy storage: storage_bytes * price_per_byte * token_price
+function calculateBuyStoragePayment(storageBytes: number): string {
+    const stakeAmount = storageBytes * PRICE_PER_BYTE * TOKEN_PRICE;
+    // Round to 6 decimal places (matching stake decimals)
+    const rounded = Math.round(stakeAmount * 1000000) / 1000000;
+    return `${rounded}stake`;
+}
+
+// Calculate payment for extend storage: storage_bytes * duration_days * price_per_byte * token_price
+function calculateExtendStoragePayment(storageBytes: number, durationDays: number): string {
+    const stakeAmount = storageBytes * durationDays * PRICE_PER_BYTE * TOKEN_PRICE;
+    // Round to 6 decimal places (matching stake decimals)
+    const rounded = Math.round(stakeAmount * 1000000) / 1000000;
+    return `${rounded}stake`;
+}
+
 export namespace Dashboard {
     // Flag to prevent concurrent uploads
     let isUploading = false;
@@ -217,9 +237,29 @@ export namespace Dashboard {
 
 
     // Show buy storage modal
-    function showExtendStorageModal(): void {
+    async function showExtendStorageModal(): Promise<void> {
         // Remove any existing modal
         $('#extendStorageModal').remove();
+        
+        // Get current storage subscription info to calculate payment
+        const walletAddress = sessionStorage.getItem('walletAddress');
+        if (!walletAddress) {
+            throw new Error('Wallet not connected');
+        }
+        
+        // Fetch current storage subscription to get storage_bytes
+        let currentStorageBytes = 0;
+        try {
+            const apiEndpoint = 'https://storage.datavault.space';
+            const response = await fetch(`${apiEndpoint}/osd-blockchain/osdblockchain/v1/account/${walletAddress}/storage`);
+            if (response.ok) {
+                const data = await response.json();
+                const sub = data.subscription;
+                currentStorageBytes = parseInt(sub.storage_bytes || sub.storageBytes || '0', 10);
+            }
+        } catch (error) {
+            console.error('Error fetching storage info for payment calculation:', error);
+        }
         
         // Create modal HTML using template
         const modalHTML = getExtendStorageModalTemplate();
@@ -236,6 +276,23 @@ export namespace Dashboard {
             keyboard: false
         });
         modal.show();
+        
+        // Store current storage bytes in a data attribute for calculation
+        $(modalElement).data('storageBytes', currentStorageBytes);
+        
+        // Calculate initial payment
+        const initialDuration = parseInt($('#extendDurationDays').val() as string) || 30;
+        const initialPayment = calculateExtendStoragePayment(currentStorageBytes, initialDuration);
+        $('#extendPayment').val(initialPayment);
+        
+        // Update payment when duration changes
+        $('#extendDurationDays').off('input change').on('input change', () => {
+            const durationDays = parseInt($('#extendDurationDays').val() as string) || 0;
+            if (durationDays > 0 && currentStorageBytes > 0) {
+                const payment = calculateExtendStoragePayment(currentStorageBytes, durationDays);
+                $('#extendPayment').val(payment);
+            }
+        });
         
         // Focus on input when modal is shown
         $(modalElement).on('shown.bs.modal', () => {
@@ -358,9 +415,25 @@ export namespace Dashboard {
         const modal = new (window as any).bootstrap.Modal(modalElement);
         modal.show();
         
+        // Calculate initial payment (convert GB to bytes: 1 GB = 1073741824 bytes)
+        const initialStorageGB = parseFloat($('#storageGB').val() as string) || 1;
+        const initialStorageBytes = Math.round(initialStorageGB * 1073741824);
+        const initialPayment = calculateBuyStoragePayment(initialStorageBytes);
+        $('#payment').val(initialPayment);
+        
+        // Update payment when storage GB changes
+        $('#storageGB').off('input change').on('input change', () => {
+            const storageGB = parseFloat($('#storageGB').val() as string) || 0;
+            if (storageGB > 0) {
+                const storageBytes = Math.round(storageGB * 1073741824);
+                const payment = calculateBuyStoragePayment(storageBytes);
+                $('#payment').val(payment);
+            }
+        });
+        
         // Focus on first input when modal is shown
         $(modalElement).on('shown.bs.modal', () => {
-            $('#storageBytes').focus();
+            $('#storageGB').focus();
         });
         
         // Handle form submission
@@ -395,12 +468,17 @@ export namespace Dashboard {
 
         try {
             // Get form values
-            const storageBytes = parseInt($('#storageBytes').val() as string);
+            const storageGB = parseFloat($('#storageGB').val() as string);
             const durationDays = parseInt($('#durationDays').val() as string);
             const payment = ($('#payment').val() as string).trim();
 
             // Validate inputs
-            if (isNaN(storageBytes) || storageBytes <= 0) {
+            if (isNaN(storageGB) || storageGB <= 0) {
+                throw new Error('Invalid storage size');
+            }
+            // Convert GB to bytes (1 GB = 1073741824 bytes)
+            const storageBytes = Math.round(storageGB * 1073741824);
+            if (storageBytes <= 0) {
                 throw new Error('Invalid storage size');
             }
             if (isNaN(durationDays) || durationDays <= 0) {
