@@ -69,41 +69,6 @@
             align-items: center;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
-        .sidebar {
-            background: white;
-            width: 250px;
-            height: calc(100vh - 73px);
-            border-right: 1px solid #dee2e6;
-            padding: 1.5rem 0;
-            overflow-y: auto;
-        }
-        .sidebar-menu {
-            list-style: none;
-            padding: 0;
-            margin: 0;
-        }
-        .sidebar-menu-item {
-            padding: 0.75rem 1.5rem;
-            cursor: pointer;
-            transition: background-color 0.2s;
-            border-left: 3px solid transparent;
-        }
-        .sidebar-menu-item:hover {
-            background-color: #f8f9fa;
-        }
-        .sidebar-menu-item.active {
-            background-color: #e7f3ff;
-            border-left-color: #0d6efd;
-        }
-        .sidebar-menu-item a {
-            text-decoration: none;
-            color: #212529;
-            display: block;
-            font-weight: 500;
-        }
-        .sidebar-menu-item.active a {
-            color: #0d6efd;
-        }
         .main-content {
             flex: 1;
             padding: 2rem;
@@ -117,6 +82,7 @@
         }
         .dashboard-container {
             display: flex;
+            flex-direction: column;
             height: calc(100vh - 73px);
         }
         .drop-zone {
@@ -128,6 +94,7 @@
             align-items: center;
             justify-content: center;
             margin-top: 2rem;
+            margin-bottom: 2rem;
             transition: all 0.3s ease;
             cursor: pointer;
         }
@@ -230,20 +197,13 @@
 
         <!-- Dashboard Container -->
         <div class="dashboard-container">
-            <!-- Sidebar -->
-                <nav class="sidebar">
-                    <ul class="sidebar-menu">
-                        <li class="sidebar-menu-item">
-                            <a href="#" id="buyStorageBtn">Buy Storage</a>
-                        </li>
-                        <li class="sidebar-menu-item active">
-                            <a href="#" id="viewFilesBtn">View Files</a>
-                        </li>
-                    </ul>
-                </nav>
-
             <!-- Main Content -->
             <main class="main-content">
+                <!-- Storage Stats Area -->
+                <div id="storageStatsArea">
+                    <!-- Stats will be loaded here -->
+                </div>
+                
                 <!-- Drag and Drop Area -->
                 <div id="dropZone" class="drop-zone">
                     <div class="drop-zone-content">

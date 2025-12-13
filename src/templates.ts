@@ -215,6 +215,90 @@ export function getLoadingTemplate(): string {
 }
 
 /**
+ * Storage Stats Template
+ */
+export function getStorageStatsTemplate(storageAmount: string, expirationDate: string): string {
+    return `
+        <div class="card mb-3">
+            <div class="card-body">
+                <div class="row align-items-center">
+                    <div class="col-md-6">
+                        <h6 class="mb-1">Storage Amount</h6>
+                        <p class="mb-0 text-muted" id="storageAmount">${storageAmount}</p>
+                    </div>
+                    <div class="col-md-4">
+                        <h6 class="mb-1">Expiration</h6>
+                        <p class="mb-0 text-muted" id="storageExpiration">${expirationDate}</p>
+                    </div>
+                    <div class="col-md-2 text-end">
+                        <button class="btn btn-primary" id="buyStorageBtn">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="me-1">
+                                <line x1="12" y1="5" x2="12" y2="19"></line>
+                                <line x1="5" y1="12" x2="19" y2="12"></line>
+                            </svg>
+                            Buy Storage
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Buy Storage Modal Template
+ */
+export function getBuyStorageModalTemplate(): string {
+    return `
+        <div class="modal fade" id="buyStorageModal" tabindex="-1" aria-labelledby="buyStorageModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="buyStorageModalLabel">Buy Storage</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <form id="buyStorageForm">
+                            <div class="mb-3">
+                                <label for="storageBytes" class="form-label">Storage Size (bytes)</label>
+                                <input type="number" class="form-control" id="storageBytes" 
+                                       placeholder="1000000000" value="1000000000" min="1" required autofocus>
+                                <div class="form-text">Enter the amount of storage in bytes (e.g., 1000000000 = 1GB)</div>
+                            </div>
+                            <div class="mb-3">
+                                <label for="durationDays" class="form-label">Duration (days)</label>
+                                <input type="number" class="form-control" id="durationDays" 
+                                       placeholder="30" value="30" min="1" required>
+                                <div class="form-text">Enter the subscription duration in days</div>
+                            </div>
+                            <div class="mb-3">
+                                <label for="payment" class="form-label">Payment Amount</label>
+                                <input type="text" class="form-control" id="payment" 
+                                       placeholder="0.1stake" value="0.1stake" required>
+                                <div class="form-text">Enter payment amount (e.g., "0.1stake")</div>
+                            </div>
+                        </form>
+                        <div id="buyStorageStatus" class="alert alert-info mt-3 d-none" role="alert">
+                            <div class="d-flex align-items-center">
+                                <div class="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
+                                <span id="buyStorageStatusText">Processing transaction...</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-primary" id="submitBuyStorageBtn">
+                            <span id="buyStorageBtnText">Buy Storage</span>
+                            <span id="buyStorageSpinner" class="spinner-border spinner-border-sm ms-2 d-none" role="status"></span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+/**
  * Delete File Modal Template
  */
 export function getDeleteFileModalTemplate(fileName: string): string {

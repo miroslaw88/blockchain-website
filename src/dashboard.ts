@@ -3,6 +3,7 @@ import { getKeplr, CHAIN_ID, deriveECIESPrivateKey, eciesKeyMaterialCache, updat
 import { fetchFiles } from './fetchFiles';
 import { buyStorage } from './buyStorage';
 import { postFile } from './postFile';
+import { getStorageStatsTemplate, getBuyStorageModalTemplate } from './templates';
 
 export namespace Dashboard {
     // Flag to prevent concurrent uploads
@@ -39,13 +40,60 @@ export namespace Dashboard {
         }
     }
 
-    // Handle menu item clicks
-    function handleMenuClick(menuItem: HTMLElement): void {
-        // Remove active class from all menu items
-        $('.sidebar-menu-item').removeClass('active');
-        
-        // Add active class to clicked item
-        $(menuItem).closest('.sidebar-menu-item').addClass('active');
+    // Fetch storage stats
+    async function fetchStorageStats(walletAddress: string): Promise<void> {
+        const $statsArea = $('#storageStatsArea');
+        if ($statsArea.length === 0) return;
+
+        try {
+            // Query storage information from blockchain
+            const apiEndpoint = 'https://storage.datavault.space';
+            const response = await fetch(`${apiEndpoint}/osd-blockchain/osdblockchain/v1/account-storage/${walletAddress}`);
+            
+            if (!response.ok) {
+                throw new Error(`Failed to fetch storage stats: ${response.status}`);
+            }
+
+            const data = await response.json();
+            
+            // Format storage amount
+            const totalStorageBytes = data.total_storage_bytes || data.totalStorageBytes || 0;
+            const activeStorageBytes = data.active_storage_bytes || data.activeStorageBytes || 0;
+            const storageAmount = formatFileSize(activeStorageBytes);
+            
+            // Get expiration date from subscriptions
+            let expirationDate = 'N/A';
+            const subscriptions = data.subscriptions || [];
+            if (subscriptions.length > 0) {
+                // Find the latest expiration
+                const latestExpiration = subscriptions
+                    .map((sub: any) => sub.expires_at || sub.expiresAt || 0)
+                    .filter((exp: number) => exp > 0)
+                    .sort((a: number, b: number) => b - a)[0];
+                
+                if (latestExpiration) {
+                    const expirationTimestamp = typeof latestExpiration === 'string' 
+                        ? parseInt(latestExpiration) 
+                        : latestExpiration;
+                    expirationDate = new Date(expirationTimestamp * 1000).toLocaleDateString();
+                }
+            }
+            
+            // Update stats area
+            $statsArea.html(getStorageStatsTemplate(storageAmount, expirationDate));
+            
+            // Set up buy storage button click handler
+            $('#buyStorageBtn').off('click').on('click', () => {
+                showBuyStorageModal();
+            });
+        } catch (error) {
+            console.error('Error fetching storage stats:', error);
+            // Show default stats on error
+            $statsArea.html(getStorageStatsTemplate('Unknown', 'N/A'));
+            $('#buyStorageBtn').off('click').on('click', () => {
+                showBuyStorageModal();
+            });
+        }
     }
 
 
@@ -220,60 +268,58 @@ export namespace Dashboard {
     }
 
 
-    // Show buy storage form
-    function showBuyStorageForm(): void {
-        const $contentArea = $('#contentArea');
-        if ($contentArea.length === 0) return;
-
-        $contentArea.html(`
-            <div class="card">
-                <div class="card-header">
-                    <h5 class="mb-0">Buy Storage</h5>
-                </div>
-                <div class="card-body">
-                    <form id="buyStorageForm">
-                        <div class="mb-3">
-                            <label for="storageBytes" class="form-label">Storage Size (bytes)</label>
-                            <input type="number" class="form-control" id="storageBytes" 
-                                   placeholder="1000000000" value="1000000000" min="1" required>
-                            <div class="form-text">Enter the amount of storage in bytes (e.g., 1000000000 = 1GB)</div>
-                        </div>
-                        <div class="mb-3">
-                            <label for="durationDays" class="form-label">Duration (days)</label>
-                            <input type="number" class="form-control" id="durationDays" 
-                                   placeholder="30" value="30" min="1" required>
-                            <div class="form-text">Enter the subscription duration in days</div>
-                        </div>
-                        <div class="mb-3">
-                            <label for="payment" class="form-label">Payment Amount</label>
-                            <input type="text" class="form-control" id="payment" 
-                                   placeholder="0.1stake" value="0.1stake" required>
-                            <div class="form-text">Enter payment amount (e.g., "0.1stake")</div>
-                        </div>
-                        <button type="submit" class="btn btn-primary" id="submitBuyStorage">
-                            <span id="buyStorageBtnText">Buy Storage</span>
-                            <span id="buyStorageSpinner" class="spinner-border spinner-border-sm ms-2 d-none" role="status"></span>
-                        </button>
-                    </form>
-                </div>
-            </div>
-        `);
-
+    // Show buy storage modal
+    function showBuyStorageModal(): void {
+        // Remove any existing modal
+        $('#buyStorageModal').remove();
+        
+        // Create modal HTML using template
+        const modalHTML = getBuyStorageModalTemplate();
+        
+        // Append modal to body
+        $('body').append(modalHTML);
+        
+        // Initialize Bootstrap modal
+        const modalElement = document.getElementById('buyStorageModal');
+        if (!modalElement) return;
+        
+        const modal = new (window as any).bootstrap.Modal(modalElement);
+        modal.show();
+        
+        // Focus on first input when modal is shown
+        $(modalElement).on('shown.bs.modal', () => {
+            $('#storageBytes').focus();
+        });
+        
         // Handle form submission
-        $('#buyStorageForm').on('submit', async (e) => {
-            e.preventDefault();
-            await handleBuyStorageSubmit();
+        $('#submitBuyStorageBtn').off('click').on('click', async () => {
+            await handleBuyStorageSubmit(modal);
+        });
+        
+        // Handle Enter key in input fields
+        $('#buyStorageForm input').off('keypress').on('keypress', (e: JQuery.KeyPressEvent) => {
+            if (e.which === 13) { // Enter key
+                e.preventDefault();
+                $('#submitBuyStorageBtn').click();
+            }
+        });
+        
+        // Clean up modal when hidden
+        $(modalElement).on('hidden.bs.modal', () => {
+            $('#buyStorageModal').remove();
         });
     }
 
     // Handle buy storage form submission
-    async function handleBuyStorageSubmit(): Promise<void> {
-        const $contentArea = $('#contentArea');
-        const $submitBtn = $('#submitBuyStorage');
+    async function handleBuyStorageSubmit(modal: any): Promise<void> {
+        const $submitBtn = $('#submitBuyStorageBtn');
+        const $cancelBtn = $('.modal-footer .btn-secondary');
         const $btnText = $('#buyStorageBtnText');
         const $spinner = $('#buyStorageSpinner');
+        const $status = $('#buyStorageStatus');
+        const $statusText = $('#buyStorageStatusText');
 
-        if ($contentArea.length === 0 || $submitBtn.length === 0) return;
+        if ($submitBtn.length === 0) return;
 
         try {
             // Get form values
@@ -294,36 +340,51 @@ export namespace Dashboard {
 
             // Show loading state
             $submitBtn.prop('disabled', true);
+            $cancelBtn.prop('disabled', true);
             $spinner.removeClass('d-none');
             $btnText.text('Processing...');
+            $status.removeClass('d-none');
+            $statusText.text('Processing transaction...');
 
             // Execute buy storage transaction
             const txHash = await buyStorage(storageBytes, durationDays, payment);
 
-            // Show success
-            $contentArea.html(`
-                <div class="alert alert-success" role="alert">
-                    <h5 class="alert-heading">Storage Purchase Successful!</h5>
-                    <p><strong>Transaction Hash:</strong> <code>${txHash}</code></p>
-                    <p><strong>Storage:</strong> ${(storageBytes / 1000000000).toFixed(2)} GB</p>
-                    <p><strong>Duration:</strong> ${durationDays} days</p>
-                    <p><strong>Payment:</strong> ${payment}</p>
-                </div>
-            `);
+            // Update status to show success
+            $statusText.text('Storage purchase successful!');
+            $status.removeClass('d-none alert-info alert-danger').addClass('alert-success');
+
+            // Show success toast
+            import('./fetchFiles').then((module) => {
+                module.showToast(`Storage purchase successful! Transaction: ${txHash.substring(0, 16)}...`, 'success');
+            });
+
+            // Close modal after a brief delay
+            setTimeout(() => {
+                modal.hide();
+                
+                // Refresh storage stats
+                const walletAddress = sessionStorage.getItem('walletAddress');
+                if (walletAddress) {
+                    fetchStorageStats(walletAddress);
+                }
+            }, 1500);
 
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Buy storage failed';
             console.error('Buy storage error:', error);
             
-            $contentArea.html(`
-                <div class="alert alert-danger" role="alert">
-                    <h5 class="alert-heading">Purchase Failed</h5>
-                    <p>${errorMessage}</p>
-                    <button class="btn btn-secondary mt-2" onclick="location.reload()">Try Again</button>
-                </div>
-            `);
-        } finally {
+            // Update status to show error
+            $statusText.text(`Error: ${errorMessage}`);
+            $status.removeClass('d-none alert-info alert-success').addClass('alert-danger');
+            
+            // Show error toast
+            import('./fetchFiles').then((module) => {
+                module.showToast(`Purchase failed: ${errorMessage}`, 'error');
+            });
+            
+            // Re-enable buttons so user can try again or cancel
             $submitBtn.prop('disabled', false);
+            $cancelBtn.prop('disabled', false);
             $spinner.addClass('d-none');
             $btnText.text('Buy Storage');
         }
@@ -724,33 +785,6 @@ export namespace Dashboard {
         // Start initialization immediately (don't await, but it will cache before first use)
         initializeECIESKey();
 
-        // Buy Storage button
-        $('#buyStorageBtn').on('click', async (e) => {
-            e.preventDefault();
-            handleMenuClick(e.currentTarget);
-            showBuyStorageForm();
-        });
-
-
-        // View Files button
-        $('#viewFilesBtn').on('click', async (e) => {
-            e.preventDefault();
-            handleMenuClick(e.currentTarget);
-            
-            // Get wallet address from sessionStorage
-            const walletAddress = sessionStorage.getItem('walletAddress');
-            if (walletAddress) {
-                await fetchFiles(walletAddress);
-            } else {
-                $('#contentArea').html(`
-                    <div class="alert alert-warning" role="alert">
-                        <h5 class="alert-heading">Warning</h5>
-                        <p>Wallet address not found. Please reconnect your wallet.</p>
-                    </div>
-                `);
-            }
-        });
-
         // Check if user has wallet info in sessionStorage
         const walletInfo = sessionStorage.getItem('walletConnected');
         if (!walletInfo) {
@@ -765,6 +799,12 @@ export namespace Dashboard {
         const walletAddress = sessionStorage.getItem('walletAddress');
         if (walletAddress) {
             updateWalletAddressDisplay(walletAddress);
+            
+            // Fetch and display storage stats
+            fetchStorageStats(walletAddress);
+            
+            // Fetch files automatically
+            fetchFiles(walletAddress);
         }
     }
 }

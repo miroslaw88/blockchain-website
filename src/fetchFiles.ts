@@ -18,7 +18,7 @@ import {
 } from './templates';
 
 // Show toast notification
-function showToast(message: string, type: 'error' | 'success' | 'info' = 'error'): void {
+export function showToast(message: string, type: 'error' | 'success' | 'info' = 'error'): void {
     const $container = $('#toastContainer');
     if ($container.length === 0) {
         // Create container if it doesn't exist
