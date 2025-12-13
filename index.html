@@ -86,15 +86,14 @@
             height: calc(100vh - 73px);
         }
         .drop-zone {
-            height: 200px;
+            height: 100%;
+            min-height: 200px;
             border: 2px dashed #dee2e6;
             border-radius: 8px;
             background-color: #f8f9fa;
             display: flex;
             align-items: center;
             justify-content: center;
-            margin-top: 2rem;
-            margin-bottom: 2rem;
             transition: all 0.3s ease;
             cursor: pointer;
         }
@@ -199,22 +198,29 @@
         <div class="dashboard-container">
             <!-- Main Content -->
             <main class="main-content">
-                <!-- Storage Stats Area -->
-                <div id="storageStatsArea">
-                    <!-- Stats will be loaded here -->
-                </div>
-                
-                <!-- Drag and Drop Area -->
-                <div id="dropZone" class="drop-zone">
-                    <div class="drop-zone-content">
-                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mb-3">
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                            <polyline points="17 8 12 3 7 8"></polyline>
-                            <line x1="12" y1="3" x2="12" y2="15"></line>
-                        </svg>
-                        <p class="mb-1"><strong>Drag and drop files here</strong></p>
-                        <p class="text-muted small mb-0">or click to browse</p>
-                        <input type="file" id="fileInput" multiple style="display: none;">
+                <!-- Storage Stats and Drag-Drop Row -->
+                <div class="row g-3 mb-3 align-items-stretch">
+                    <!-- Left: Storage Stats Area -->
+                    <div class="col-md-6 d-flex">
+                        <div id="storageStatsArea" class="w-100">
+                            <!-- Stats will be loaded here -->
+                        </div>
+                    </div>
+                    
+                    <!-- Right: Drag and Drop Area -->
+                    <div class="col-md-6 d-flex">
+                        <div id="dropZone" class="drop-zone w-100">
+                            <div class="drop-zone-content">
+                                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mb-3">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                    <polyline points="17 8 12 3 7 8"></polyline>
+                                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                                </svg>
+                                <p class="mb-1"><strong>Drag and drop files here</strong></p>
+                                <p class="text-muted small mb-0">or click to browse</p>
+                                <input type="file" id="fileInput" multiple style="display: none;">
+                            </div>
+                        </div>
                     </div>
                 </div>
                 
