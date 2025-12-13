@@ -3,7 +3,8 @@ import { getKeplr, CHAIN_ID, deriveECIESPrivateKey, eciesKeyMaterialCache, updat
 import { fetchFiles } from './fetchFiles';
 import { buyStorage } from './buyStorage';
 import { postFile } from './postFile';
-import { getStorageStatsTemplate, getBuyStorageModalTemplate } from './templates';
+import { fetchStorageStats } from './fetchStorageStats';
+import { getBuyStorageModalTemplate } from './templates';
 
 export namespace Dashboard {
     // Flag to prevent concurrent uploads
@@ -40,61 +41,6 @@ export namespace Dashboard {
         }
     }
 
-    // Fetch storage stats
-    async function fetchStorageStats(walletAddress: string): Promise<void> {
-        const $statsArea = $('#storageStatsArea');
-        if ($statsArea.length === 0) return;
-
-        try {
-            // Query storage information from blockchain
-            const apiEndpoint = 'https://storage.datavault.space';
-            const response = await fetch(`${apiEndpoint}/osd-blockchain/osdblockchain/v1/account-storage/${walletAddress}`);
-            
-            if (!response.ok) {
-                throw new Error(`Failed to fetch storage stats: ${response.status}`);
-            }
-
-            const data = await response.json();
-            
-            // Format storage amount
-            const totalStorageBytes = data.total_storage_bytes || data.totalStorageBytes || 0;
-            const activeStorageBytes = data.active_storage_bytes || data.activeStorageBytes || 0;
-            const storageAmount = formatFileSize(activeStorageBytes);
-            
-            // Get expiration date from subscriptions
-            let expirationDate = 'N/A';
-            const subscriptions = data.subscriptions || [];
-            if (subscriptions.length > 0) {
-                // Find the latest expiration
-                const latestExpiration = subscriptions
-                    .map((sub: any) => sub.expires_at || sub.expiresAt || 0)
-                    .filter((exp: number) => exp > 0)
-                    .sort((a: number, b: number) => b - a)[0];
-                
-                if (latestExpiration) {
-                    const expirationTimestamp = typeof latestExpiration === 'string' 
-                        ? parseInt(latestExpiration) 
-                        : latestExpiration;
-                    expirationDate = new Date(expirationTimestamp * 1000).toLocaleDateString();
-                }
-            }
-            
-            // Update stats area
-            $statsArea.html(getStorageStatsTemplate(storageAmount, expirationDate));
-            
-            // Set up buy storage button click handler
-            $('#buyStorageBtn').off('click').on('click', () => {
-                showBuyStorageModal();
-            });
-        } catch (error) {
-            console.error('Error fetching storage stats:', error);
-            // Show default stats on error
-            $statsArea.html(getStorageStatsTemplate('Unknown', 'N/A'));
-            $('#buyStorageBtn').off('click').on('click', () => {
-                showBuyStorageModal();
-            });
-        }
-    }
 
 
     // Track if drag and drop is initialized to prevent duplicate listeners
@@ -365,7 +311,7 @@ export namespace Dashboard {
                 // Refresh storage stats
                 const walletAddress = sessionStorage.getItem('walletAddress');
                 if (walletAddress) {
-                    fetchStorageStats(walletAddress);
+                    fetchStorageStats(walletAddress, showBuyStorageModal);
                 }
             }, 1500);
 
@@ -801,7 +747,7 @@ export namespace Dashboard {
             updateWalletAddressDisplay(walletAddress);
             
             // Fetch and display storage stats
-            fetchStorageStats(walletAddress);
+            fetchStorageStats(walletAddress, showBuyStorageModal);
             
             // Fetch files automatically
             fetchFiles(walletAddress);
