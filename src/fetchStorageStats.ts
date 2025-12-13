@@ -45,16 +45,26 @@ export async function fetchStorageStats(
         const totalStorageFormatted = formatFileSize(totalStorageBytes);
         const activeStorageFormatted = formatFileSize(activeStorageBytes);
         
-        // Parse subscriptions array
-        const subscriptions = (data.subscriptions || []).map((sub: any) => ({
-            id: sub.id || '',
-            storage_bytes: sub.storage_bytes || sub.storageBytes || '0',
-            start_time: sub.start_time || sub.startTime || '0',
-            end_time: sub.end_time || sub.endTime || '0',
-            duration_seconds: sub.duration_seconds || sub.durationSeconds || '0',
-            remaining_seconds: sub.remaining_seconds || sub.remainingSeconds || '0',
-            is_active: sub.is_active !== undefined ? sub.is_active : (sub.isActive !== undefined ? sub.isActive : false)
-        }));
+        // Parse subscription (now a single object instead of array)
+        const subscriptionData = data.subscription || data.subscriptions || null;
+        let subscription = null;
+        
+        if (subscriptionData) {
+            // Handle both single object and array (for backwards compatibility)
+            const sub = Array.isArray(subscriptionData) ? subscriptionData[0] : subscriptionData;
+            subscription = {
+                id: sub.id || '',
+                storage_bytes: sub.storage_bytes || sub.storageBytes || '0',
+                start_time: sub.start_time || sub.startTime || '0',
+                end_time: sub.end_time || sub.endTime || '0',
+                duration_seconds: sub.duration_seconds || sub.durationSeconds || '0',
+                remaining_seconds: sub.remaining_seconds || sub.remainingSeconds || '0',
+                is_active: sub.is_active !== undefined ? sub.is_active : (sub.isActive !== undefined ? sub.isActive : false)
+            };
+        }
+        
+        // Convert to array format for template (which expects array but only uses first item)
+        const subscriptions = subscription ? [subscription] : [];
         
         // Update stats area with all data
         $statsArea.html(getStorageStatsTemplate(
