@@ -72,8 +72,47 @@
         .main-content {
             flex: 1;
             padding: 2rem;
-            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
             height: calc(100vh - 73px);
+            overflow: hidden;
+            min-height: 0;
+        }
+        #contentArea {
+            flex: 1 1 auto;
+            min-height: 0;
+        }
+        /* Make the files view card fill height and use flexbox */
+        #contentArea > .card {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+        #contentArea > .card > .card-body {
+            flex: 1 1 auto;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            overflow: hidden;
+            width: 100%;
+        }
+        /* Scrollbar on the files content area (after header and breadcrumbs) */
+        #filesViewContent {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+            overflow-x: hidden;
+            width: 100%;
+        }
+        /* Ensure the grid inside wraps properly */
+        #filesViewContent .row {
+            margin-left: 0;
+            margin-right: 0;
+            width: 100%;
+        }
+        /* Ensure cards don't exceed container width */
+        #filesViewContent .card {
+            max-width: 100%;
         }
         pre code {
             font-family: 'Courier New', Courier, monospace;
@@ -199,7 +238,7 @@
             <!-- Main Content -->
             <main class="main-content">
                 <!-- Storage Stats and Drag-Drop Row -->
-                <div class="row g-3 mb-3 align-items-stretch">
+                <div class="row g-3 mb-3 align-items-stretch flex-shrink-0">
                     <!-- Left: Storage Stats Area -->
                     <div class="col-md-6 d-flex">
                         <div id="storageStatsArea" class="w-100">
@@ -224,7 +263,7 @@
                     </div>
                 </div>
                 
-                <div id="contentArea">
+                <div id="contentArea" class="flex-grow-1 overflow-auto">
                     <!-- Content will be loaded here -->
                 </div>
             </main>
