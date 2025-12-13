@@ -106,8 +106,8 @@ export function getFolderThumbnailTemplate(
                     </div>
                     <h6 class="card-title mb-1 text-truncate" style="font-size: 0.9rem;" title="${folderName}">${folderName}</h6>
                     <p class="text-muted small mb-1">Folder</p>
-                    <div class="mt-2 d-flex gap-2 justify-content-center">
-                        <span class="badge bg-info">Directory</span>
+                    <div class="mt-2 d-flex gap-2 justify-content-center align-items-center">
+                        <span class="badge bg-info d-flex align-items-center" style="height: 32px; padding: 0.25rem 0.5rem;">Directory</span>
                         <button class="btn btn-sm btn-danger delete-folder-btn" data-folder-path="${folderPath}" data-folder-name="${folderName}" title="Delete Folder">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <polyline points="3 6 5 6 21 6"></polyline>
