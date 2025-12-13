@@ -1,6 +1,17 @@
 // Fetch files from blockchain
 
 import { downloadFile } from './downloadFile';
+import { createDirectory } from './createDirectory';
+import {
+    getFilesViewTemplate,
+    getEmptyStateTemplate,
+    getFileThumbnailTemplate,
+    getFolderThumbnailTemplate,
+    getEntriesGridTemplate,
+    getCreateFolderModalTemplate,
+    getErrorTemplate,
+    getLoadingTemplate
+} from './templates';
 
 // Show toast notification
 function showToast(message: string, type: 'error' | 'success' | 'info' = 'error'): void {
@@ -153,7 +164,7 @@ export async function fetchFiles(walletAddress: string, path: string = ''): Prom
     if ($contentArea.length === 0) return;
 
     // Show loading state
-    $contentArea.html('<div class="text-center"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div><p class="mt-2">Loading files...</p><p class="text-muted small">This may take a few seconds...</p></div>');
+    $contentArea.html(getLoadingTemplate());
 
     try {
         // Construct API URL with wallet address and path parameter
@@ -234,27 +245,53 @@ export async function fetchFiles(walletAddress: string, path: string = ''): Prom
         }
         sessionStorage.setItem('currentDirectoryPath', currentPath);
         
-        // Display entries as thumbnails
-        if (entries.length === 0) {
-            $contentArea.html(`
-                <div class="card">
-                    <div class="card-header">
-                        <h5 class="mb-0">Files and Folders for ${walletAddress}</h5>
-                    </div>
-                    <div class="card-body text-center py-5">
-                        <p class="text-muted">No files or folders found</p>
-                    </div>
-                </div>
-            `);
-            return;
-        }
+        // Build breadcrumb navigation (needed for both empty and non-empty states)
+        const breadcrumbs = buildBreadcrumbs(currentPath);
         
-        // Count files and directories
+        // Count files and directories (needed for both empty and non-empty states)
         const fileCount = entries.filter(e => e.type === 'file').length;
         const directoryCount = entries.filter(e => e.type === 'directory').length;
         
-        // Build breadcrumb navigation (currentPath already defined above)
-        const breadcrumbs = buildBreadcrumbs(currentPath);
+        // Check if the files view template already exists
+        const $existingCard = $contentArea.find('.card');
+        const $filesViewCard = $existingCard.filter((i, el) => {
+            return $(el).find('#createFolderToolbarBtn').length > 0;
+        });
+        
+        // If template doesn't exist, create it
+        if ($filesViewCard.length === 0) {
+            $contentArea.html(getFilesViewTemplate(walletAddress));
+            
+            // Set up event handlers once (they'll persist)
+            $contentArea.off('click', '#createFolderToolbarBtn');
+            $contentArea.on('click', '#createFolderToolbarBtn', function(e) {
+                e.preventDefault();
+                const currentPath = sessionStorage.getItem('currentDirectoryPath') || '/';
+                showCreateFolderModal(walletAddress, currentPath);
+            });
+        }
+        
+        // Update dynamic parts of the template
+        // 1. Update header with file/folder counts
+        $('#filesViewHeader').text(`Files and Folders (${fileCount} files, ${directoryCount} folders)`);
+        
+        // 2. Update wallet address (in case it changed)
+        $('#filesViewWalletAddress').text(walletAddress);
+        
+        // 3. Update breadcrumbs
+        $('#filesViewBreadcrumbs').html(breadcrumbs);
+        
+        // 4. Update content area (files/folders list)
+        const $contentAreaInner = $('#filesViewContent');
+        
+        // Display entries as thumbnails
+        if (entries.length === 0) {
+            $contentAreaInner.html(getEmptyStateTemplate());
+            
+            // Re-attach event handlers (they may have been removed)
+            attachEventHandlers(walletAddress, currentPath);
+            return;
+        }
         
         // Generate thumbnail grid
         const entriesGrid = entries.map((entry: any) => {
@@ -277,178 +314,233 @@ export async function fetchFiles(walletAddress: string, path: string = ''): Prom
                 const uploadDate = formatDate(parseInt(entry.uploaded_at || entry.uploadedAt || '0', 10));
                 const expirationDate = formatDate(parseInt(entry.expiration_time || entry.expirationTime || '0', 10));
                 const expirationTimestamp = parseInt(entry.expiration_time || entry.expirationTime || '0', 10);
-                const isExpired = expirationTimestamp && expirationTimestamp < Math.floor(Date.now() / 1000);
+                const isExpired = Boolean(expirationTimestamp && expirationTimestamp < Math.floor(Date.now() / 1000));
                 // Handle both camelCase and snake_case for merkle root
                 const merkleRoot = entry.merkle_root || entry.merkleRoot || '';
                 
-                return `
-                    <div class="col-md-3 col-sm-4 col-6 mb-4">
-                        <div class="card h-100 file-thumbnail ${isExpired ? 'border-warning' : ''}" style="transition: transform 0.2s;">
-                            <div class="card-body text-center p-3">
-                                <div class="file-icon mb-2" style="color: #6c757d;">
-                                    ${getFileIcon(contentType)}
-                                </div>
-                                <h6 class="card-title mb-1 text-truncate" style="font-size: 0.9rem;" title="${fileName}">${fileName}</h6>
-                                <p class="text-muted small mb-1">${fileSize}</p>
-                                ${isExpired ? '<span class="badge bg-warning text-dark mb-2">Expired</span>' : ''}
-                                <div class="mt-2">
-                                    <button class="btn btn-sm btn-primary download-btn" data-merkle-root="${merkleRoot}" data-file-name="${fileName}" title="Download">
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                                            <polyline points="7 10 12 15 17 10"></polyline>
-                                            <line x1="12" y1="15" x2="12" y2="3"></line>
-                                        </svg>
-                                    </button>
-                                </div>
-                            </div>
-                            <div class="card-footer bg-transparent border-0 pt-0 pb-2">
-                                <small class="text-muted d-block" style="font-size: 0.75rem;">Uploaded: ${uploadDate}</small>
-                                <small class="text-muted d-block" style="font-size: 0.75rem;">Expires: ${expirationDate}</small>
-                            </div>
-                        </div>
-                    </div>
-                `;
+                return getFileThumbnailTemplate(
+                    fileName,
+                    fileSize,
+                    uploadDate,
+                    expirationDate,
+                    merkleRoot,
+                    contentType,
+                    isExpired,
+                    getFileIcon(contentType)
+                );
             } else if (entry.type === 'directory') {
                 // Handle directory entry
                 const folderName = entry.name || 'Unknown Folder';
                 const folderPath = entry.path || '';
                 
-                return `
-                    <div class="col-md-3 col-sm-4 col-6 mb-4">
-                        <div class="card h-100 file-thumbnail folder-thumbnail" style="transition: transform 0.2s; cursor: pointer;" data-folder-path="${folderPath}">
-                            <div class="card-body text-center p-3">
-                                <div class="file-icon mb-2" style="color: #ffc107;">
-                                    ${getFolderIcon()}
-                                </div>
-                                <h6 class="card-title mb-1 text-truncate" style="font-size: 0.9rem;" title="${folderName}">${folderName}</h6>
-                                <p class="text-muted small mb-1">Folder</p>
-                                <div class="mt-2">
-                                    <span class="badge bg-info">Directory</span>
-                                </div>
-                            </div>
-                            <div class="card-footer bg-transparent border-0 pt-0 pb-2">
-                                <small class="text-muted d-block" style="font-size: 0.75rem;">Path: ${folderPath}</small>
-                            </div>
-                        </div>
-                    </div>
-                `;
+                return getFolderThumbnailTemplate(
+                    folderName,
+                    folderPath,
+                    getFolderIcon()
+                );
             } else {
                 // Unknown type - skip
                 return '';
             }
         }).filter(html => html !== '').join('');
         
-        $contentArea.html(`
-            <div class="card">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0">Files and Folders (${fileCount} files, ${directoryCount} folders)</h5>
-                    <small class="text-muted">${walletAddress}</small>
-                </div>
-                <div class="card-body">
-                    ${breadcrumbs}
-                    <div class="row mt-3">
-                        ${entriesGrid}
-                    </div>
-                </div>
-            </div>
-        `);
+        // Update the content area with the entries grid
+        $contentAreaInner.html(getEntriesGridTemplate(entriesGrid));
         
-        // Add event listeners to download buttons using event delegation
-        // This ensures handlers work even after buttons are restored
-        // Remove any existing handlers first to prevent duplicates
-        $contentArea.off('click', '.download-btn');
-        $contentArea.on('click', '.download-btn', async function(e) {
-            e.preventDefault();
-            const $button = $(this);
-            const merkleRoot = $button.attr('data-merkle-root');
-            const fileName = $button.attr('data-file-name') || 'file';
-            
-            if (!merkleRoot) {
-                showToast('File identifier not found', 'error');
-                return;
-            }
-            
-            // Create a minimal file object with just the merkle root
-            // downloadFile will query the full file info from the blockchain
-            const fileMetadata = {
-                merkleRoot: merkleRoot,
-                merkle_root: merkleRoot
-            };
-            
-            // Replace button with progress bar
-            const $buttonContainer = $button.parent(); // div.mt-2
-            const originalHTML = $buttonContainer.html();
-            
-            try {
-                await downloadFile(fileMetadata, walletAddress, $button);
-            } finally {
-                // Restore button
-                $buttonContainer.html(originalHTML);
-            }
-        });
-        
-        // Add hover effect to thumbnails
-        $contentArea.find('.file-thumbnail').on({
-            mouseenter: function() {
-                $(this).css({ transform: 'translateY(-5px)', boxShadow: '0 4px 8px rgba(0,0,0,0.1)' });
-            },
-            mouseleave: function() {
-                $(this).css({ transform: 'translateY(0)', boxShadow: '' });
-            }
-        });
-        
-        // Add click handler for folder thumbnails - navigate into folder
-        // Remove any existing handlers first to prevent duplicates
-        $contentArea.off('click', '.folder-thumbnail');
-        $contentArea.on('click', '.folder-thumbnail', function(e) {
-            e.preventDefault();
-            e.stopPropagation(); // Prevent event bubbling
-            const $folder = $(this);
-            const folderPath = $folder.attr('data-folder-path');
-            if (folderPath) {
-                // Trim the path to remove any trailing spaces
-                const trimmedPath = folderPath.trim();
-                console.log('Navigating to folder:', trimmedPath);
-                // Navigate into the folder
-                fetchFiles(walletAddress, trimmedPath);
-            }
-        });
-        
-        // Add click handler for breadcrumb navigation
-        $contentArea.off('click', '.breadcrumb-link');
-        $contentArea.on('click', '.breadcrumb-link', function(e) {
-            e.preventDefault();
-            e.stopPropagation();
-            const $breadcrumb = $(this);
-            let targetPath = $breadcrumb.attr('data-path') || '';
-            // Normalize: if empty string, use "/" for root
-            if (targetPath === '') {
-                targetPath = '/';
-            }
-            console.log('Navigating to path:', targetPath);
-            fetchFiles(walletAddress, targetPath);
-        });
+        // Attach event handlers (using event delegation, so they persist)
+        attachEventHandlers(walletAddress, currentPath);
     } catch (error) {
         // Display detailed error
         const errorMessage = error instanceof Error ? error.message : 'Failed to fetch files';
         console.error('Fetch error:', error);
         
-        $contentArea.html(`
-            <div class="alert alert-danger" role="alert">
-                <h5 class="alert-heading">Error Fetching Files</h5>
-                <p><strong>Error:</strong> ${errorMessage}</p>
-                <hr>
-                <p class="mb-1"><strong>Troubleshooting:</strong></p>
-                <ul class="mb-0">
-                    <li><strong>Code 12 / Status 501:</strong> This usually means Caddy isn't routing the request to your blockchain API server. Check your Caddyfile configuration.</li>
-                    <li>Ensure your blockchain node is running on <code>localhost:1337</code></li>
-                    <li>Verify Caddyfile has: <code>handle_path /osd-blockchain* { reverse_proxy 127.0.0.1:1337 }</code></li>
-                    <li>Test the endpoint directly: <code>curl http://localhost:1337/osd-blockchain/osdblockchain/v1/files/owner/{address}</code></li>
-                    <li>Reload Caddy after config changes: <code>sudo systemctl reload caddy</code></li>
-                    <li>Check Caddy logs: <code>sudo journalctl -u caddy -f</code></li>
-                </ul>
-            </div>
-        `);
+        $contentArea.html(getErrorTemplate(errorMessage));
+    }
+}
+
+// Helper function to attach event handlers (using event delegation)
+function attachEventHandlers(walletAddress: string, currentPath: string): void {
+    const $contentArea = $('#contentArea');
+    
+    // Add event listeners to download buttons using event delegation
+    // This ensures handlers work even after buttons are restored
+    // Remove any existing handlers first to prevent duplicates
+    $contentArea.off('click', '.download-btn');
+    $contentArea.on('click', '.download-btn', async function(e) {
+        e.preventDefault();
+        const $button = $(this);
+        const merkleRoot = $button.attr('data-merkle-root');
+        const fileName = $button.attr('data-file-name') || 'file';
+        
+        if (!merkleRoot) {
+            showToast('File identifier not found', 'error');
+            return;
+        }
+        
+        // Create a minimal file object with just the merkle root
+        // downloadFile will query the full file info from the blockchain
+        const fileMetadata = {
+            merkleRoot: merkleRoot,
+            merkle_root: merkleRoot
+        };
+        
+        // Replace button with progress bar
+        const $buttonContainer = $button.parent(); // div.mt-2
+        const originalHTML = $buttonContainer.html();
+        
+        try {
+            await downloadFile(fileMetadata, walletAddress, $button);
+        } finally {
+            // Restore button
+            $buttonContainer.html(originalHTML);
+        }
+    });
+    
+    // Add hover effect to thumbnails
+    $contentArea.find('.file-thumbnail').off('mouseenter mouseleave');
+    $contentArea.find('.file-thumbnail').on({
+        mouseenter: function() {
+            $(this).css({ transform: 'translateY(-5px)', boxShadow: '0 4px 8px rgba(0,0,0,0.1)' });
+        },
+        mouseleave: function() {
+            $(this).css({ transform: 'translateY(0)', boxShadow: '' });
+        }
+    });
+    
+    // Add click handler for folder thumbnails - navigate into folder
+    // Remove any existing handlers first to prevent duplicates
+    $contentArea.off('click', '.folder-thumbnail');
+    $contentArea.on('click', '.folder-thumbnail', function(e) {
+        e.preventDefault();
+        e.stopPropagation(); // Prevent event bubbling
+        const $folder = $(this);
+        const folderPath = $folder.attr('data-folder-path');
+        if (folderPath) {
+            // Trim the path to remove any trailing spaces
+            const trimmedPath = folderPath.trim();
+            console.log('Navigating to folder:', trimmedPath);
+            // Navigate into the folder
+            fetchFiles(walletAddress, trimmedPath);
+        }
+    });
+    
+    // Add click handler for breadcrumb navigation
+    $contentArea.off('click', '.breadcrumb-link');
+    $contentArea.on('click', '.breadcrumb-link', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const $breadcrumb = $(this);
+        let targetPath = $breadcrumb.attr('data-path') || '';
+        // Normalize: if empty string, use "/" for root
+        if (targetPath === '') {
+            targetPath = '/';
+        }
+        console.log('Navigating to path:', targetPath);
+        fetchFiles(walletAddress, targetPath);
+    });
+}
+
+// Show create folder modal dialog
+function showCreateFolderModal(walletAddress: string, currentPath: string): void {
+    // Remove any existing modal
+    $('#createFolderModal').remove();
+    
+    // Create modal HTML using template
+    const modalHTML = getCreateFolderModalTemplate(currentPath);
+    
+    // Append modal to body
+    $('body').append(modalHTML);
+    
+    // Initialize Bootstrap modal
+    const modalElement = document.getElementById('createFolderModal');
+    if (!modalElement) return;
+    
+    const modal = new (window as any).bootstrap.Modal(modalElement);
+    modal.show();
+    
+    // Focus on input when modal is shown
+    $(modalElement).on('shown.bs.modal', () => {
+        $('#folderName').focus();
+    });
+    
+    // Handle form submission
+    $('#submitCreateFolderBtn').off('click').on('click', async () => {
+        await handleCreateFolderSubmit(walletAddress, currentPath, modal);
+    });
+    
+    // Handle Enter key in input field
+    $('#folderName').off('keypress').on('keypress', (e: JQuery.KeyPressEvent) => {
+        if (e.which === 13) { // Enter key
+            e.preventDefault();
+            $('#submitCreateFolderBtn').click();
+        }
+    });
+    
+    // Clean up modal when hidden
+    $(modalElement).on('hidden.bs.modal', () => {
+        $('#createFolderModal').remove();
+    });
+}
+
+// Handle create folder form submission
+async function handleCreateFolderSubmit(walletAddress: string, currentPath: string, modal: any): Promise<void> {
+    const $submitBtn = $('#submitCreateFolderBtn');
+    const $btnText = $('#createFolderBtnText');
+    const $spinner = $('#createFolderSpinner');
+    const $folderName = $('#folderName');
+
+    try {
+        // Get folder name
+        const folderName = ($folderName.val() as string).trim();
+
+        // Validate input
+        if (!folderName) {
+            showToast('Folder name is required', 'error');
+            return;
+        }
+
+        // Validate folder name (no slashes, no special characters that could break paths)
+        if (folderName.includes('/') || folderName.includes('\\')) {
+            showToast('Folder name cannot contain slashes', 'error');
+            return;
+        }
+
+        // Show loading state
+        $submitBtn.prop('disabled', true);
+        $spinner.removeClass('d-none');
+        $btnText.text('Creating...');
+
+        // Build full path: currentPath + folderName + /
+        let fullPath = currentPath;
+        if (fullPath === '/') {
+            fullPath = '/' + folderName + '/';
+        } else {
+            // currentPath already ends with /, so just append folderName
+            fullPath = fullPath + folderName + '/';
+        }
+
+        console.log('Creating folder at path:', fullPath);
+
+        // Execute create directory transaction
+        const result = await createDirectory(fullPath);
+
+        // Show success toast
+        showToast('Folder created successfully!', 'success');
+
+        // Close modal
+        modal.hide();
+
+        // Refresh files list to show the new folder
+        await fetchFiles(walletAddress, currentPath);
+
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Create folder failed';
+        console.error('Create folder error:', error);
+        showToast(`Create folder failed: ${errorMessage}`, 'error');
+    } finally {
+        $submitBtn.prop('disabled', false);
+        $spinner.addClass('d-none');
+        $btnText.text('Create Folder');
     }
 }
 

@@ -211,7 +211,10 @@
     <div id="dashboardView">
         <!-- Header -->
         <header class="header">
-            <button id="disconnectBtn" class="btn btn-outline-danger">Disconnect</button>
+            <div class="d-flex align-items-center gap-3">
+                <span id="walletAddressDisplay" class="text-muted" style="font-family: monospace; font-size: 0.9rem;"></span>
+                <button id="disconnectBtn" class="btn btn-outline-danger">Disconnect</button>
+            </div>
         </header>
 
         <!-- Dashboard Container -->
@@ -221,9 +224,6 @@
                     <ul class="sidebar-menu">
                         <li class="sidebar-menu-item">
                             <a href="#" id="buyStorageBtn">Buy Storage</a>
-                        </li>
-                        <li class="sidebar-menu-item">
-                            <a href="#" id="createFolderBtn">Create Folder</a>
                         </li>
                         <li class="sidebar-menu-item active">
                             <a href="#" id="viewFilesBtn">View Files</a>

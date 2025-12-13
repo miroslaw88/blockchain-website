@@ -77,3 +77,21 @@ export async function deriveECIESPrivateKey(userAddress: string): Promise<Crypto
     return keyMaterial;
 }
 
+// Format wallet address for display (first 5 + '...' + last 5)
+export function formatWalletAddress(address: string): string {
+    if (!address || address.length <= 10) {
+        return address;
+    }
+    return `${address.substring(0, 5)}...${address.substring(address.length - 5)}`;
+}
+
+// Update wallet address display in header
+export function updateWalletAddressDisplay(address: string | null): void {
+    const $display = $('#walletAddressDisplay');
+    if (address) {
+        $display.text(formatWalletAddress(address));
+    } else {
+        $display.text('');
+    }
+}
+

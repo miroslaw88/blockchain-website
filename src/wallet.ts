@@ -193,6 +193,10 @@ export namespace Wallet {
         // Switch to dashboard view (no redirect)
         const { switchToDashboard } = await import('./app');
         switchToDashboard();
+        
+        // Update wallet address display in header
+        const { updateWalletAddressDisplay } = await import('./utils');
+        updateWalletAddressDisplay(key.bech32Address);
 
     } catch (error) {
         // Display error status

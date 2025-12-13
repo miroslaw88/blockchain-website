@@ -1,9 +1,8 @@
 // Dashboard functionality
-import { getKeplr, CHAIN_ID, deriveECIESPrivateKey, eciesKeyMaterialCache } from './utils';
+import { getKeplr, CHAIN_ID, deriveECIESPrivateKey, eciesKeyMaterialCache, updateWalletAddressDisplay } from './utils';
 import { fetchFiles } from './fetchFiles';
 import { buyStorage } from './buyStorage';
 import { postFile } from './postFile';
-import { createDirectory } from './createDirectory';
 
 export namespace Dashboard {
     // Flag to prevent concurrent uploads
@@ -29,6 +28,9 @@ export namespace Dashboard {
             sessionStorage.removeItem('walletAddress');
             sessionStorage.removeItem('walletName');
             sessionStorage.removeItem('chainId');
+            
+            // Clear wallet address display
+            updateWalletAddressDisplay(null);
             
             // Switch back to wallet connection view (no redirect)
             import('./app').then(({ switchToWalletConnection }) => {
@@ -327,100 +329,6 @@ export namespace Dashboard {
         }
     }
 
-    // Show create folder form
-    function showCreateFolderForm(): void {
-        const $contentArea = $('#contentArea');
-        if ($contentArea.length === 0) return;
-
-        $contentArea.html(`
-            <div class="card">
-                <div class="card-header">
-                    <h5 class="mb-0">Create Folder</h5>
-                </div>
-                <div class="card-body">
-                    <form id="createFolderForm">
-                        <div class="mb-3">
-                            <label for="folderPath" class="form-label">Folder Path</label>
-                            <input type="text" class="form-control" id="folderPath" 
-                                   placeholder="/documents/my-folder" required>
-                            <div class="form-text">
-                                Enter the folder path (e.g., "/documents/my-folder"). 
-                                Path will be normalized to start with "/" and end with "/".
-                            </div>
-                        </div>
-                        <button type="submit" class="btn btn-primary" id="submitCreateFolder">
-                            <span id="createFolderBtnText">Create Folder</span>
-                            <span id="createFolderSpinner" class="spinner-border spinner-border-sm ms-2 d-none" role="status"></span>
-                        </button>
-                    </form>
-                </div>
-            </div>
-        `);
-
-        // Handle form submission
-        $('#createFolderForm').on('submit', async (e) => {
-            e.preventDefault();
-            await handleCreateFolderSubmit();
-        });
-    }
-
-    // Handle create folder form submission
-    async function handleCreateFolderSubmit(): Promise<void> {
-        const $contentArea = $('#contentArea');
-        const $submitBtn = $('#submitCreateFolder');
-        const $btnText = $('#createFolderBtnText');
-        const $spinner = $('#createFolderSpinner');
-
-        if ($contentArea.length === 0 || $submitBtn.length === 0) return;
-
-        try {
-            // Get form value
-            const folderPath = ($('#folderPath').val() as string).trim();
-
-            // Validate input
-            if (!folderPath) {
-                throw new Error('Folder path is required');
-            }
-
-            // Show loading state
-            $submitBtn.prop('disabled', true);
-            $spinner.removeClass('d-none');
-            $btnText.text('Creating...');
-
-            // Execute create directory transaction
-            const result = await createDirectory(folderPath);
-
-            // Format creation date
-            const createdAt = new Date(result.createdAt * 1000).toLocaleString();
-
-            // Show success
-            $contentArea.html(`
-                <div class="alert alert-success" role="alert">
-                    <h5 class="alert-heading">Folder Created Successfully!</h5>
-                    <p><strong>Transaction Hash:</strong> <code>${result.transactionHash}</code></p>
-                    <p><strong>Path:</strong> <code>${folderPath}</code></p>
-                    <p><strong>Created At:</strong> ${createdAt}</p>
-                    <p class="mb-0"><small class="text-muted">The folder will be created by indexer nodes listening to the blockchain event.</small></p>
-                </div>
-            `);
-
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : 'Create folder failed';
-            console.error('Create folder error:', error);
-            
-            $contentArea.html(`
-                <div class="alert alert-danger" role="alert">
-                    <h5 class="alert-heading">Create Folder Failed</h5>
-                    <p>${errorMessage}</p>
-                    <button class="btn btn-secondary mt-2" onclick="location.reload()">Try Again</button>
-                </div>
-            `);
-        } finally {
-            $submitBtn.prop('disabled', false);
-            $spinner.addClass('d-none');
-            $btnText.text('Create Folder');
-        }
-    }
 
 
     // Upload chunk to storage provider
@@ -481,26 +389,76 @@ export namespace Dashboard {
     // Helper function to add uploading file entry to files list
     function addUploadingFileEntry(file: File, uploadId: string): void {
         const $contentArea = $('#contentArea');
+        const $card = $contentArea.find('.card');
         const $filesRow = $contentArea.find('.row');
         
-        // Check if files list is displayed
-        if ($filesRow.length === 0) {
-            // Files list not displayed, create it
-            $contentArea.html(`
-                <div class="card">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <h5 class="mb-0">Files</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="row">
-                            ${createUploadingFileHTML(file, uploadId, 0)}
+        // Check if the files view template exists (has the proper header with create folder button)
+        const $filesViewCard = $card.filter((i, el) => {
+            return $(el).find('#createFolderToolbarBtn').length > 0;
+        });
+        
+        if ($filesViewCard.length > 0) {
+            // Files view template exists - reuse it
+            // Find or create the .row element
+            let $row = $filesViewCard.find('.row');
+            const $cardBody = $filesViewCard.find('.card-body');
+            
+            if ($row.length === 0) {
+                // No .row exists (empty folder), create it and remove the "No files" message
+                // Remove the "No files or folders found" message but preserve breadcrumbs
+                $cardBody.find('.text-center').remove(); // Remove "No files or folders found" message
+                $row = $('<div class="row mt-3"></div>');
+                $cardBody.append($row);
+            }
+            
+            // Add uploading file to the row
+            $row.append(createUploadingFileHTML(file, uploadId, 0));
+            
+            // Update the file count in the header
+            const $header = $filesViewCard.find('.card-header h5');
+            const currentText = $header.text();
+            const match = currentText.match(/\((\d+) files, (\d+) folders\)/);
+            if (match) {
+                const fileCount = parseInt(match[1], 10) + 1;
+                const folderCount = parseInt(match[2], 10);
+                $header.text(`Files and Folders (${fileCount} files, ${folderCount} folders)`);
+            }
+        } else if ($filesRow.length > 0) {
+            // Files list exists but not the full template, add to existing row
+            $filesRow.append(createUploadingFileHTML(file, uploadId, 0));
+        } else {
+            // No files view exists, need to create it with proper structure
+            // Get current path and wallet address for the template
+            const walletAddress = sessionStorage.getItem('walletAddress') || '';
+            const currentPath = sessionStorage.getItem('currentDirectoryPath') || '/';
+            
+            // Import fetchFiles to get breadcrumbs and other utilities
+            import('./fetchFiles').then(({ fetchFiles }) => {
+                // For now, create a minimal structure that will be replaced when upload completes
+                // But we should preserve the structure
+                $contentArea.html(`
+                    <div class="card">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0">Files and Folders (1 files, 0 folders)</h5>
+                            <div class="d-flex align-items-center gap-2">
+                                <button class="btn btn-sm btn-outline-primary" id="createFolderToolbarBtn" title="Create Folder">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                                        <line x1="12" y1="11" x2="12" y2="17"></line>
+                                        <line x1="9" y1="14" x2="15" y2="14"></line>
+                                    </svg>
+                                </button>
+                                <small class="text-muted">${walletAddress}</small>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="row mt-3">
+                                ${createUploadingFileHTML(file, uploadId, 0)}
+                            </div>
                         </div>
                     </div>
-                </div>
-            `);
-        } else {
-            // Add to existing files list
-            $filesRow.append(createUploadingFileHTML(file, uploadId, 0));
+                `);
+            });
         }
     }
 
@@ -814,12 +772,6 @@ export namespace Dashboard {
             showBuyStorageForm();
         });
 
-        // Create Folder button
-        $('#createFolderBtn').on('click', async (e) => {
-            e.preventDefault();
-            handleMenuClick(e.currentTarget);
-            showCreateFolderForm();
-        });
 
         // View Files button
         $('#viewFilesBtn').on('click', async (e) => {
@@ -848,6 +800,12 @@ export namespace Dashboard {
                 switchToWalletConnection();
             });
             return;
+        }
+        
+        // Update wallet address display
+        const walletAddress = sessionStorage.getItem('walletAddress');
+        if (walletAddress) {
+            updateWalletAddressDisplay(walletAddress);
         }
     }
 }
