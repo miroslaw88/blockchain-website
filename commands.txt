@@ -4,3 +4,23 @@ npm run build
 #run site
 npm run dev
 
+
+
+
+
+for prod:
+
+cd /var/www/blockchain-website
+
+# Change ownership of dist directory to your user
+sudo chown -R blockchaindev:blockchaindev dist
+
+# Or remove and recreate it
+sudo rm -rf dist
+mkdir dist
+
+# Now build
+npm run build
+
+# After build, change ownership back to www-data so Caddy can serve it
+sudo chown -R www-data:www-data dist
