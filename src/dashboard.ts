@@ -903,6 +903,35 @@ export namespace Dashboard {
         await uploadFile(file);
     }
 
+    // Query active indexers from blockchain
+    async function queryActiveIndexers(): Promise<void> {
+        try {
+            const apiEndpoint = 'https://storage.datavault.space';
+            const response = await fetch(`${apiEndpoint}/osd-blockchain/osdblockchain/v1/indexers/active`);
+            
+            if (!response.ok) {
+                console.error('Failed to fetch active indexers:', response.status);
+                return;
+            }
+            
+            const data = await response.json();
+            console.log('Active Indexers:', data);
+        } catch (error) {
+            console.error('Error querying active indexers:', error);
+        }
+    }
+
+    // Start polling active indexers every 5 seconds
+    function startIndexerPolling(): void {
+        // Query immediately on start
+        queryActiveIndexers();
+        
+        // Then query every 5 seconds
+        setInterval(() => {
+            queryActiveIndexers();
+        }, 5000);
+    }
+
     // Initialize dashboard
     export function init() {
         // Disconnect button
@@ -910,6 +939,9 @@ export namespace Dashboard {
 
         // Initialize drag and drop
         initDragAndDrop();
+
+        // Start polling active indexers
+        startIndexerPolling();
 
         // Initialize ECIES key cache if wallet is connected
         // This ensures the cache is ready before any file operations

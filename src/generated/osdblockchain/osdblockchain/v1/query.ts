@@ -52,12 +52,13 @@ export interface SubscriptionInfo {
 export interface QueryAccountStorageResponse {
   /** address is the account address that was queried. */
   address: string;
-  /** total_storage_bytes is the total storage capacity purchased across all subscriptions. */
-  totalStorageBytes: number;
-  /** active_storage_bytes is the total storage capacity from active subscriptions only. */
-  activeStorageBytes: number;
-  /** subscriptions is a list of all subscriptions for this account. */
-  subscriptions: SubscriptionInfo[];
+  /**
+   * subscription is the single subscription for this account (null if no subscription exists).
+   * Each account can have at most one subscription. Buying more storage or extending duration
+   * updates the existing subscription rather than creating a new one.
+   * Storage size can be derived from subscription.storage_bytes.
+   */
+  subscription: SubscriptionInfo | undefined;
 }
 
 /** QueryFileRequest is request type for the Query/File RPC method. */
@@ -137,6 +138,22 @@ export interface QueryIndexerRangesRequest {
 export interface QueryIndexerRangesResponse {
   /** ranges are all indexer ranges. */
   ranges: IndexerRange[];
+  /** pagination defines the pagination in the response. */
+  pagination: PageResponse | undefined;
+}
+
+/** QueryActiveIndexersRequest is request type for the Query/ActiveIndexers RPC method. */
+export interface QueryActiveIndexersRequest {
+  /** pagination defines an optional pagination for the request. */
+  pagination: PageRequest | undefined;
+}
+
+/** QueryActiveIndexersResponse is response type for the Query/ActiveIndexers RPC method. */
+export interface QueryActiveIndexersResponse {
+  /** indexers are all currently active indexers. */
+  indexers: IndexerRange[];
+  /** total_count is the total number of active indexers. */
+  totalCount: number;
   /** pagination defines the pagination in the response. */
   pagination: PageResponse | undefined;
 }
@@ -610,7 +627,7 @@ export const SubscriptionInfo: MessageFns<SubscriptionInfo> = {
 };
 
 function createBaseQueryAccountStorageResponse(): QueryAccountStorageResponse {
-  return { address: "", totalStorageBytes: 0, activeStorageBytes: 0, subscriptions: [] };
+  return { address: "", subscription: undefined };
 }
 
 export const QueryAccountStorageResponse: MessageFns<QueryAccountStorageResponse> = {
@@ -618,14 +635,8 @@ export const QueryAccountStorageResponse: MessageFns<QueryAccountStorageResponse
     if (message.address !== "") {
       writer.uint32(10).string(message.address);
     }
-    if (message.totalStorageBytes !== 0) {
-      writer.uint32(16).int64(message.totalStorageBytes);
-    }
-    if (message.activeStorageBytes !== 0) {
-      writer.uint32(24).int64(message.activeStorageBytes);
-    }
-    for (const v of message.subscriptions) {
-      SubscriptionInfo.encode(v!, writer.uint32(34).fork()).join();
+    if (message.subscription !== undefined) {
+      SubscriptionInfo.encode(message.subscription, writer.uint32(18).fork()).join();
     }
     return writer;
   },
@@ -646,27 +657,11 @@ export const QueryAccountStorageResponse: MessageFns<QueryAccountStorageResponse
           continue;
         }
         case 2: {
-          if (tag !== 16) {
+          if (tag !== 18) {
             break;
           }
 
-          message.totalStorageBytes = longToNumber(reader.int64());
-          continue;
-        }
-        case 3: {
-          if (tag !== 24) {
-            break;
-          }
-
-          message.activeStorageBytes = longToNumber(reader.int64());
-          continue;
-        }
-        case 4: {
-          if (tag !== 34) {
-            break;
-          }
-
-          message.subscriptions.push(SubscriptionInfo.decode(reader, reader.uint32()));
+          message.subscription = SubscriptionInfo.decode(reader, reader.uint32());
           continue;
         }
       }
@@ -681,11 +676,7 @@ export const QueryAccountStorageResponse: MessageFns<QueryAccountStorageResponse
   fromJSON(object: any): QueryAccountStorageResponse {
     return {
       address: isSet(object.address) ? globalThis.String(object.address) : "",
-      totalStorageBytes: isSet(object.totalStorageBytes) ? globalThis.Number(object.totalStorageBytes) : 0,
-      activeStorageBytes: isSet(object.activeStorageBytes) ? globalThis.Number(object.activeStorageBytes) : 0,
-      subscriptions: globalThis.Array.isArray(object?.subscriptions)
-        ? object.subscriptions.map((e: any) => SubscriptionInfo.fromJSON(e))
-        : [],
+      subscription: isSet(object.subscription) ? SubscriptionInfo.fromJSON(object.subscription) : undefined,
     };
   },
 
@@ -694,14 +685,8 @@ export const QueryAccountStorageResponse: MessageFns<QueryAccountStorageResponse
     if (message.address !== "") {
       obj.address = message.address;
     }
-    if (message.totalStorageBytes !== 0) {
-      obj.totalStorageBytes = Math.round(message.totalStorageBytes);
-    }
-    if (message.activeStorageBytes !== 0) {
-      obj.activeStorageBytes = Math.round(message.activeStorageBytes);
-    }
-    if (message.subscriptions?.length) {
-      obj.subscriptions = message.subscriptions.map((e) => SubscriptionInfo.toJSON(e));
+    if (message.subscription !== undefined) {
+      obj.subscription = SubscriptionInfo.toJSON(message.subscription);
     }
     return obj;
   },
@@ -712,9 +697,9 @@ export const QueryAccountStorageResponse: MessageFns<QueryAccountStorageResponse
   fromPartial<I extends Exact<DeepPartial<QueryAccountStorageResponse>, I>>(object: I): QueryAccountStorageResponse {
     const message = createBaseQueryAccountStorageResponse();
     message.address = object.address ?? "";
-    message.totalStorageBytes = object.totalStorageBytes ?? 0;
-    message.activeStorageBytes = object.activeStorageBytes ?? 0;
-    message.subscriptions = object.subscriptions?.map((e) => SubscriptionInfo.fromPartial(e)) || [];
+    message.subscription = (object.subscription !== undefined && object.subscription !== null)
+      ? SubscriptionInfo.fromPartial(object.subscription)
+      : undefined;
     return message;
   },
 };
@@ -1416,6 +1401,162 @@ export const QueryIndexerRangesResponse: MessageFns<QueryIndexerRangesResponse> 
   fromPartial<I extends Exact<DeepPartial<QueryIndexerRangesResponse>, I>>(object: I): QueryIndexerRangesResponse {
     const message = createBaseQueryIndexerRangesResponse();
     message.ranges = object.ranges?.map((e) => IndexerRange.fromPartial(e)) || [];
+    message.pagination = (object.pagination !== undefined && object.pagination !== null)
+      ? PageResponse.fromPartial(object.pagination)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseQueryActiveIndexersRequest(): QueryActiveIndexersRequest {
+  return { pagination: undefined };
+}
+
+export const QueryActiveIndexersRequest: MessageFns<QueryActiveIndexersRequest> = {
+  encode(message: QueryActiveIndexersRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.pagination !== undefined) {
+      PageRequest.encode(message.pagination, writer.uint32(10).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): QueryActiveIndexersRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseQueryActiveIndexersRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.pagination = PageRequest.decode(reader, reader.uint32());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): QueryActiveIndexersRequest {
+    return { pagination: isSet(object.pagination) ? PageRequest.fromJSON(object.pagination) : undefined };
+  },
+
+  toJSON(message: QueryActiveIndexersRequest): unknown {
+    const obj: any = {};
+    if (message.pagination !== undefined) {
+      obj.pagination = PageRequest.toJSON(message.pagination);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<QueryActiveIndexersRequest>, I>>(base?: I): QueryActiveIndexersRequest {
+    return QueryActiveIndexersRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<QueryActiveIndexersRequest>, I>>(object: I): QueryActiveIndexersRequest {
+    const message = createBaseQueryActiveIndexersRequest();
+    message.pagination = (object.pagination !== undefined && object.pagination !== null)
+      ? PageRequest.fromPartial(object.pagination)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseQueryActiveIndexersResponse(): QueryActiveIndexersResponse {
+  return { indexers: [], totalCount: 0, pagination: undefined };
+}
+
+export const QueryActiveIndexersResponse: MessageFns<QueryActiveIndexersResponse> = {
+  encode(message: QueryActiveIndexersResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.indexers) {
+      IndexerRange.encode(v!, writer.uint32(10).fork()).join();
+    }
+    if (message.totalCount !== 0) {
+      writer.uint32(16).int64(message.totalCount);
+    }
+    if (message.pagination !== undefined) {
+      PageResponse.encode(message.pagination, writer.uint32(26).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): QueryActiveIndexersResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseQueryActiveIndexersResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.indexers.push(IndexerRange.decode(reader, reader.uint32()));
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.totalCount = longToNumber(reader.int64());
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.pagination = PageResponse.decode(reader, reader.uint32());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): QueryActiveIndexersResponse {
+    return {
+      indexers: globalThis.Array.isArray(object?.indexers)
+        ? object.indexers.map((e: any) => IndexerRange.fromJSON(e))
+        : [],
+      totalCount: isSet(object.totalCount) ? globalThis.Number(object.totalCount) : 0,
+      pagination: isSet(object.pagination) ? PageResponse.fromJSON(object.pagination) : undefined,
+    };
+  },
+
+  toJSON(message: QueryActiveIndexersResponse): unknown {
+    const obj: any = {};
+    if (message.indexers?.length) {
+      obj.indexers = message.indexers.map((e) => IndexerRange.toJSON(e));
+    }
+    if (message.totalCount !== 0) {
+      obj.totalCount = Math.round(message.totalCount);
+    }
+    if (message.pagination !== undefined) {
+      obj.pagination = PageResponse.toJSON(message.pagination);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<QueryActiveIndexersResponse>, I>>(base?: I): QueryActiveIndexersResponse {
+    return QueryActiveIndexersResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<QueryActiveIndexersResponse>, I>>(object: I): QueryActiveIndexersResponse {
+    const message = createBaseQueryActiveIndexersResponse();
+    message.indexers = object.indexers?.map((e) => IndexerRange.fromPartial(e)) || [];
+    message.totalCount = object.totalCount ?? 0;
     message.pagination = (object.pagination !== undefined && object.pagination !== null)
       ? PageResponse.fromPartial(object.pagination)
       : undefined;
@@ -2626,6 +2767,8 @@ export interface Query {
   IndexerRange(request: QueryIndexerRangeRequest): Promise<QueryIndexerRangeResponse>;
   /** IndexerRanges queries all indexer ranges (paginated). */
   IndexerRanges(request: QueryIndexerRangesRequest): Promise<QueryIndexerRangesResponse>;
+  /** ActiveIndexers queries all currently active indexers. */
+  ActiveIndexers(request: QueryActiveIndexersRequest): Promise<QueryActiveIndexersResponse>;
   /** IndexersForFile queries which indexers handle a specific file hash. */
   IndexersForFile(request: QueryIndexersForFileRequest): Promise<QueryIndexersForFileResponse>;
   /** PrefixLoad queries the load (file count) for a specific prefix. */
@@ -2668,6 +2811,7 @@ export class QueryClientImpl implements Query {
     this.FilesByProvider = this.FilesByProvider.bind(this);
     this.IndexerRange = this.IndexerRange.bind(this);
     this.IndexerRanges = this.IndexerRanges.bind(this);
+    this.ActiveIndexers = this.ActiveIndexers.bind(this);
     this.IndexersForFile = this.IndexersForFile.bind(this);
     this.PrefixLoad = this.PrefixLoad.bind(this);
     this.PrefixLoads = this.PrefixLoads.bind(this);
@@ -2717,6 +2861,12 @@ export class QueryClientImpl implements Query {
     const data = QueryIndexerRangesRequest.encode(request).finish();
     const promise = this.rpc.request(this.service, "IndexerRanges", data);
     return promise.then((data) => QueryIndexerRangesResponse.decode(new BinaryReader(data)));
+  }
+
+  ActiveIndexers(request: QueryActiveIndexersRequest): Promise<QueryActiveIndexersResponse> {
+    const data = QueryActiveIndexersRequest.encode(request).finish();
+    const promise = this.rpc.request(this.service, "ActiveIndexers", data);
+    return promise.then((data) => QueryActiveIndexersResponse.decode(new BinaryReader(data)));
   }
 
   IndexersForFile(request: QueryIndexersForFileRequest): Promise<QueryIndexersForFileResponse> {
