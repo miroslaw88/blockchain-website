@@ -607,7 +607,8 @@ export namespace Dashboard {
         chunkMerkleRoot: string,
         owner: string,
         expirationTime: number,
-        metadata: { name: string; content_type: string }
+        metadata: { name: string; content_type: string },
+        transactionHash: string
     ): Promise<void> {
         console.log(`=== Uploading chunk ${chunkIndex + 1}/${totalChunks} ===`);
         console.log('Provider address:', providerAddress);
@@ -615,6 +616,7 @@ export namespace Dashboard {
         console.log('Chunk merkle root:', chunkMerkleRoot);
         console.log('Combined merkle root:', combinedMerkleRoot);
         console.log('Owner:', owner);
+        console.log('Transaction hash:', transactionHash);
         
         const formData = new FormData();
         formData.append('file', encryptedChunk, `chunk_${chunkIndex}.bin`);
@@ -625,6 +627,7 @@ export namespace Dashboard {
         formData.append('chunk_index', chunkIndex.toString());
         formData.append('total_chunks', totalChunks.toString());
         formData.append('metadata', JSON.stringify(metadata));
+        formData.append('transaction_hash', transactionHash);
         
         const uploadUrl = `https://storage.datavault.space/api/v1/files/upload`;
         console.log('Upload URL:', uploadUrl);
@@ -894,7 +897,8 @@ export namespace Dashboard {
                         chunkMerkleRoots[i], // Individual chunk merkle root for validation
                         userAddress,
                         expirationTime,
-                        metadata
+                        metadata,
+                        postFileResult.transactionHash // Pass transaction hash
                     );
                 }
                 
