@@ -5,6 +5,7 @@ import { createDirectory } from './createDirectory';
 import { deleteFile } from './deleteFile';
 import { deleteDirectory } from './deleteDirectory';
 import { formatDate } from './utils';
+import { Dashboard } from './dashboard';
 import {
     getFilesViewTemplate,
     getEmptyStateTemplate,
@@ -158,11 +159,6 @@ export async function fetchFiles(walletAddress: string, path: string = ''): Prom
     $contentArea.html(getLoadingTemplate());
 
     try {
-        // Construct API URL with wallet address and path parameter
-        // Use HTTPS through Caddy reverse proxy (routes /osd-blockchain to localhost:1337)
-        // API endpoint: /osd-blockchain/osdblockchain/v1/files/owner/{owner}?path={path}
-        const apiEndpoint = 'https://storage.datavault.space';
-        
         // Normalize and encode the path parameter
         // Always include path parameter ("/" for root directory, otherwise use provided path)
         let normalizedPath = path ? path.trim() : '';
@@ -176,12 +172,17 @@ export async function fetchFiles(walletAddress: string, path: string = ''): Prom
         }
         const encodedPath = encodeURIComponent(normalizedPath);
         
-        const apiUrl = `${apiEndpoint}/osd-blockchain/osdblockchain/v1/files/owner/${walletAddress}?path=${encodedPath}`;
+        // Wait for an indexer to become available
+        const indexer = await Dashboard.waitForIndexer();
         
-        console.log('Fetching from:', apiUrl);
+        // Use indexer endpoint: http://{indexer_address}/api/indexer/v1/files/owner/{walletAddress}?path={path}
+        const protocol = indexer.indexer_address.includes('localhost') ? 'http' : 'https';
+        const apiUrl = `${protocol}://${indexer.indexer_address}/api/indexer/v1/files/owner/${walletAddress}?path=${encodedPath}`;
+        
+        console.log('Fetching from indexer:', apiUrl);
         console.log('Path parameter:', normalizedPath);
         
-        // Fetch data from blockchain with 15 second timeout
+        // Fetch data with 15 second timeout
         const response = await fetchWithTimeout(apiUrl, 15000);
         
         if (!response.ok) {

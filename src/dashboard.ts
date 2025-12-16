@@ -31,6 +31,61 @@ function calculateExtendStoragePayment(storageBytes: number, durationDays: numbe
 export namespace Dashboard {
     // Flag to prevent concurrent uploads
     let isUploading = false;
+    
+    // Store active indexers
+    let activeIndexers: Array<{
+        indexer_id: string;
+        indexer_address: string;
+        hash_prefix_start?: string;
+        prefix_depth?: string;
+        hash_prefix_end?: string;
+        is_exact_prefix?: boolean;
+        group_id?: string;
+        file_count?: string;
+        query_count?: string;
+        registered_at?: string;
+        last_updated?: string;
+        is_active?: boolean;
+    }> = [];
+    
+    // Get a random active indexer
+    export function getRandomIndexer(): { indexer_address: string } | null {
+        if (activeIndexers.length === 0) {
+            return null;
+        }
+        const randomIndex = Math.floor(Math.random() * activeIndexers.length);
+        return {
+            indexer_address: activeIndexers[randomIndex].indexer_address
+        };
+    }
+    
+    // Wait for an indexer to become available (polling every 500ms, max 60 seconds)
+    export async function waitForIndexer(maxWaitTime: number = 60000): Promise<{ indexer_address: string }> {
+        const startTime = Date.now();
+        const checkInterval = 500; // Check every 500ms
+        
+        return new Promise((resolve, reject) => {
+            const checkIndexer = () => {
+                const indexer = getRandomIndexer();
+                if (indexer) {
+                    resolve(indexer);
+                    return;
+                }
+                
+                // Check if we've exceeded max wait time
+                if (Date.now() - startTime >= maxWaitTime) {
+                    reject(new Error('No active indexers available. Please wait and try again.'));
+                    return;
+                }
+                
+                // Check again after interval
+                setTimeout(checkIndexer, checkInterval);
+            };
+            
+            // Start checking
+            checkIndexer();
+        });
+    }
 
     // Disconnect wallet function
     async function disconnectWallet(): Promise<void> {
@@ -916,6 +971,12 @@ export namespace Dashboard {
             
             const data = await response.json();
             console.log('Active Indexers:', data);
+            
+            // Store active indexers
+            if (data.indexers && Array.isArray(data.indexers)) {
+                activeIndexers = data.indexers.filter((indexer: any) => indexer.is_active === true);
+                console.log(`Stored ${activeIndexers.length} active indexers`);
+            }
         } catch (error) {
             console.error('Error querying active indexers:', error);
         }

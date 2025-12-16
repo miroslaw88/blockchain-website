@@ -31,7 +31,7 @@ export default defineConfig({
     chunkSizeWarningLimit: 1000
   },
   server: {
-    port: 8080,
+    port: 8060,
     open: true
   },
   optimizeDeps: {
