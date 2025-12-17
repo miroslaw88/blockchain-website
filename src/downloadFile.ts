@@ -468,11 +468,11 @@ export async function downloadFile(fileMetadata: any, walletAddress: string, $bu
         let downloadUrl: string;
         if (providerAddress.includes('storage.datavault.space')) {
             // Use Caddy proxy
-            downloadUrl = `https://storage.datavault.space/api/v1/files/download?merkle_root=${merkleRoot}`;
+            downloadUrl = `https://storage.datavault.space/api/storage/v1/files/download?merkle_root=${merkleRoot}`;
         } else {
             // Direct provider address
             const baseUrl = providerAddress.startsWith('http') ? providerAddress : `https://${providerAddress}`;
-            downloadUrl = `${baseUrl}/api/v1/files/download?merkle_root=${merkleRoot}`;
+            downloadUrl = `${baseUrl}/api/storage/v1/files/download?merkle_root=${merkleRoot}`;
         }
         
         console.log('Downloading encrypted file from:', downloadUrl);

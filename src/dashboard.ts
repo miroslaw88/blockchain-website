@@ -7,6 +7,7 @@ import { fetchStorageStats } from './fetchStorageStats';
 import { extendStorageDuration } from './extendStorage';
 import { getExtendStorageModalTemplate } from './templates';
 import { getBuyStorageModalTemplate } from './templates';
+import { submitChunkMetadata } from './submitChunkMetadata';
 
 // Payment calculation constants
 const PRICE_PER_BYTE = 0.0000000001; // $0.0000000001 per byte
@@ -629,7 +630,7 @@ export namespace Dashboard {
         formData.append('metadata', JSON.stringify(metadata));
         formData.append('transaction_hash', transactionHash);
         
-        const uploadUrl = `https://storage.datavault.space/api/v1/files/upload`;
+        const uploadUrl = `https://storage.datavault.space/api/storage/v1/files/upload`;
         console.log('Upload URL:', uploadUrl);
 
         try {
@@ -877,7 +878,7 @@ export namespace Dashboard {
                 console.log('Total encrypted size:', totalEncryptedSize, 'bytes');
                 console.log('Number of chunks:', encryptedChunks.length);
                 console.log('Combined merkle root:', combinedMerkleRoot);
-                console.log('Preparing to upload chunks to:', `https://storage.datavault.space/api/v1/files/upload`);
+                console.log('Preparing to upload chunks to:', `https://storage.datavault.space/api/storage/v1/files/upload`);
                 
                 // Upload chunks with progress updates
                 const totalChunks = encryptedChunks.length;
@@ -903,7 +904,43 @@ export namespace Dashboard {
                 }
                 
                 console.log('Upload to storage provider completed successfully');
-                updateUploadingFileProgress(uploadId, 95, 'Finalizing...');
+                updateUploadingFileProgress(uploadId, 90, 'Submitting chunk metadata to indexers...');
+                
+                // Step 8: Submit chunk metadata to indexers
+                try {
+                    // Build chunks array with index, hash (merkle root), and size
+                    const chunks = encryptedChunks.map((chunk, index) => ({
+                        index: index,
+                        hash: chunkMerkleRoots[index],
+                        size: chunk.size
+                    }));
+                    
+                    console.log('Submitting chunk metadata:', {
+                        owner: userAddress,
+                        merkleRoot: combinedMerkleRoot,
+                        chunks: chunks
+                    });
+                    
+                    const chunkMetadataResult = await submitChunkMetadata(
+                        userAddress,
+                        combinedMerkleRoot,
+                        chunks
+                    );
+                    
+                    console.log(`Chunk metadata submitted: ${chunkMetadataResult.successCount} success(es), ${chunkMetadataResult.failureCount} failure(s)`);
+                    console.log('Successful indexers:', chunkMetadataResult.indexers.map(i => i.indexer_id));
+                    
+                    if (chunkMetadataResult.successCount > 0) {
+                        updateUploadingFileProgress(uploadId, 95, `Finalizing... (${chunkMetadataResult.successCount} indexer(s) updated)`);
+                    } else {
+                        updateUploadingFileProgress(uploadId, 95, 'Finalizing... (chunk metadata submission failed)');
+                    }
+                } catch (error) {
+                    console.error('Failed to submit chunk metadata:', error);
+                    // Don't fail the entire upload if chunk metadata submission fails
+                    // The file is already uploaded to the storage provider
+                    updateUploadingFileProgress(uploadId, 95, 'Finalizing... (chunk metadata submission failed)');
+                }
             } else {
                 console.warn('No storage providers assigned. File may be added to pending queue.');
                 console.log('PostFileResult:', postFileResult);

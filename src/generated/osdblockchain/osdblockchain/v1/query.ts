@@ -7,7 +7,7 @@
 /* eslint-disable */
 import { BinaryReader, BinaryWriter } from "@bufbuild/protobuf/wire";
 import { PageRequest, PageResponse } from "../../../cosmos/base/query/v1beta1/pagination";
-import { DirectoryEntry, FileMetadata } from "./file_metadata";
+import { FileMetadata } from "./file_metadata";
 import { IndexerRange, PrefixLoad } from "./indexer";
 import { Params } from "./params";
 import { StorageProvider } from "./storage_provider";
@@ -71,33 +71,6 @@ export interface QueryFileRequest {
 export interface QueryFileResponse {
   /** file is the file metadata. */
   file: FileMetadata | undefined;
-}
-
-/** QueryFilesByOwnerRequest is request type for the Query/FilesByOwner RPC method. */
-export interface QueryFilesByOwnerRequest {
-  /** owner is the address of the file owner. */
-  owner: string;
-  /**
-   * path is the directory path to filter files/folders (required).
-   * Use "/" for root directory to get all files and folders.
-   * Path should be normalized (e.g., "/documents/folder1/").
-   */
-  path: string;
-  /** pagination defines an optional pagination for the request. */
-  pagination: PageRequest | undefined;
-}
-
-/** QueryFilesByOwnerResponse is response type for the Query/FilesByOwner RPC method. */
-export interface QueryFilesByOwnerResponse {
-  /**
-   * entries are the file and directory entries.
-   * Each entry has a type field ("file" or "directory") to distinguish between them.
-   * Files have all file fields (merkle_root, size, owner, etc.).
-   * Directories only have name, type, and path fields.
-   */
-  entries: DirectoryEntry[];
-  /** pagination defines the pagination in the response. */
-  pagination: PageResponse | undefined;
 }
 
 /** QueryFilesByProviderRequest is request type for the Query/FilesByProvider RPC method. */
@@ -817,180 +790,6 @@ export const QueryFileResponse: MessageFns<QueryFileResponse> = {
     const message = createBaseQueryFileResponse();
     message.file = (object.file !== undefined && object.file !== null)
       ? FileMetadata.fromPartial(object.file)
-      : undefined;
-    return message;
-  },
-};
-
-function createBaseQueryFilesByOwnerRequest(): QueryFilesByOwnerRequest {
-  return { owner: "", path: "", pagination: undefined };
-}
-
-export const QueryFilesByOwnerRequest: MessageFns<QueryFilesByOwnerRequest> = {
-  encode(message: QueryFilesByOwnerRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.owner !== "") {
-      writer.uint32(10).string(message.owner);
-    }
-    if (message.path !== "") {
-      writer.uint32(26).string(message.path);
-    }
-    if (message.pagination !== undefined) {
-      PageRequest.encode(message.pagination, writer.uint32(18).fork()).join();
-    }
-    return writer;
-  },
-
-  decode(input: BinaryReader | Uint8Array, length?: number): QueryFilesByOwnerRequest {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    let end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseQueryFilesByOwnerRequest();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1: {
-          if (tag !== 10) {
-            break;
-          }
-
-          message.owner = reader.string();
-          continue;
-        }
-        case 3: {
-          if (tag !== 26) {
-            break;
-          }
-
-          message.path = reader.string();
-          continue;
-        }
-        case 2: {
-          if (tag !== 18) {
-            break;
-          }
-
-          message.pagination = PageRequest.decode(reader, reader.uint32());
-          continue;
-        }
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skip(tag & 7);
-    }
-    return message;
-  },
-
-  fromJSON(object: any): QueryFilesByOwnerRequest {
-    return {
-      owner: isSet(object.owner) ? globalThis.String(object.owner) : "",
-      path: isSet(object.path) ? globalThis.String(object.path) : "",
-      pagination: isSet(object.pagination) ? PageRequest.fromJSON(object.pagination) : undefined,
-    };
-  },
-
-  toJSON(message: QueryFilesByOwnerRequest): unknown {
-    const obj: any = {};
-    if (message.owner !== "") {
-      obj.owner = message.owner;
-    }
-    if (message.path !== "") {
-      obj.path = message.path;
-    }
-    if (message.pagination !== undefined) {
-      obj.pagination = PageRequest.toJSON(message.pagination);
-    }
-    return obj;
-  },
-
-  create<I extends Exact<DeepPartial<QueryFilesByOwnerRequest>, I>>(base?: I): QueryFilesByOwnerRequest {
-    return QueryFilesByOwnerRequest.fromPartial(base ?? ({} as any));
-  },
-  fromPartial<I extends Exact<DeepPartial<QueryFilesByOwnerRequest>, I>>(object: I): QueryFilesByOwnerRequest {
-    const message = createBaseQueryFilesByOwnerRequest();
-    message.owner = object.owner ?? "";
-    message.path = object.path ?? "";
-    message.pagination = (object.pagination !== undefined && object.pagination !== null)
-      ? PageRequest.fromPartial(object.pagination)
-      : undefined;
-    return message;
-  },
-};
-
-function createBaseQueryFilesByOwnerResponse(): QueryFilesByOwnerResponse {
-  return { entries: [], pagination: undefined };
-}
-
-export const QueryFilesByOwnerResponse: MessageFns<QueryFilesByOwnerResponse> = {
-  encode(message: QueryFilesByOwnerResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    for (const v of message.entries) {
-      DirectoryEntry.encode(v!, writer.uint32(10).fork()).join();
-    }
-    if (message.pagination !== undefined) {
-      PageResponse.encode(message.pagination, writer.uint32(18).fork()).join();
-    }
-    return writer;
-  },
-
-  decode(input: BinaryReader | Uint8Array, length?: number): QueryFilesByOwnerResponse {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    let end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseQueryFilesByOwnerResponse();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1: {
-          if (tag !== 10) {
-            break;
-          }
-
-          message.entries.push(DirectoryEntry.decode(reader, reader.uint32()));
-          continue;
-        }
-        case 2: {
-          if (tag !== 18) {
-            break;
-          }
-
-          message.pagination = PageResponse.decode(reader, reader.uint32());
-          continue;
-        }
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skip(tag & 7);
-    }
-    return message;
-  },
-
-  fromJSON(object: any): QueryFilesByOwnerResponse {
-    return {
-      entries: globalThis.Array.isArray(object?.entries)
-        ? object.entries.map((e: any) => DirectoryEntry.fromJSON(e))
-        : [],
-      pagination: isSet(object.pagination) ? PageResponse.fromJSON(object.pagination) : undefined,
-    };
-  },
-
-  toJSON(message: QueryFilesByOwnerResponse): unknown {
-    const obj: any = {};
-    if (message.entries?.length) {
-      obj.entries = message.entries.map((e) => DirectoryEntry.toJSON(e));
-    }
-    if (message.pagination !== undefined) {
-      obj.pagination = PageResponse.toJSON(message.pagination);
-    }
-    return obj;
-  },
-
-  create<I extends Exact<DeepPartial<QueryFilesByOwnerResponse>, I>>(base?: I): QueryFilesByOwnerResponse {
-    return QueryFilesByOwnerResponse.fromPartial(base ?? ({} as any));
-  },
-  fromPartial<I extends Exact<DeepPartial<QueryFilesByOwnerResponse>, I>>(object: I): QueryFilesByOwnerResponse {
-    const message = createBaseQueryFilesByOwnerResponse();
-    message.entries = object.entries?.map((e) => DirectoryEntry.fromPartial(e)) || [];
-    message.pagination = (object.pagination !== undefined && object.pagination !== null)
-      ? PageResponse.fromPartial(object.pagination)
       : undefined;
     return message;
   },
@@ -2756,11 +2555,6 @@ export interface Query {
   AccountStorage(request: QueryAccountStorageRequest): Promise<QueryAccountStorageResponse>;
   /** File queries file metadata by Merkle root hash. */
   File(request: QueryFileRequest): Promise<QueryFileResponse>;
-  /**
-   * FilesByOwner queries all files owned by an address.
-   * Optionally filters by directory path if provided.
-   */
-  FilesByOwner(request: QueryFilesByOwnerRequest): Promise<QueryFilesByOwnerResponse>;
   /** FilesByProvider queries all files stored by a provider. */
   FilesByProvider(request: QueryFilesByProviderRequest): Promise<QueryFilesByProviderResponse>;
   /** IndexerRange queries the hash prefix range assigned to a specific indexer. */
@@ -2807,7 +2601,6 @@ export class QueryClientImpl implements Query {
     this.Params = this.Params.bind(this);
     this.AccountStorage = this.AccountStorage.bind(this);
     this.File = this.File.bind(this);
-    this.FilesByOwner = this.FilesByOwner.bind(this);
     this.FilesByProvider = this.FilesByProvider.bind(this);
     this.IndexerRange = this.IndexerRange.bind(this);
     this.IndexerRanges = this.IndexerRanges.bind(this);
@@ -2837,12 +2630,6 @@ export class QueryClientImpl implements Query {
     const data = QueryFileRequest.encode(request).finish();
     const promise = this.rpc.request(this.service, "File", data);
     return promise.then((data) => QueryFileResponse.decode(new BinaryReader(data)));
-  }
-
-  FilesByOwner(request: QueryFilesByOwnerRequest): Promise<QueryFilesByOwnerResponse> {
-    const data = QueryFilesByOwnerRequest.encode(request).finish();
-    const promise = this.rpc.request(this.service, "FilesByOwner", data);
-    return promise.then((data) => QueryFilesByOwnerResponse.decode(new BinaryReader(data)));
   }
 
   FilesByProvider(request: QueryFilesByProviderRequest): Promise<QueryFilesByProviderResponse> {
