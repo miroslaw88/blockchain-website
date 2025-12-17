@@ -1,7 +1,8 @@
 // Download file from storage provider and decrypt
 
 import { getKeplr, CHAIN_ID } from './utils';
-import { decryptFile } from './osd-blockchain-sdk';
+import { decryptFile, decryptFileKeyWithECIES } from './osd-blockchain-sdk';
+import { getAccountKey } from './accountKey';
 
 // Show toast notification
 function showToast(message: string, type: 'error' | 'success' | 'info' = 'error'): void {
@@ -381,24 +382,12 @@ async function parseMultipartResponse(
 }
 
 // Helper function to complete the download (decrypt and save)
-async function finishDownload(encryptedBlob: Blob, walletAddress: string, fileName: string): Promise<void> {
-    // Step 3: Decrypt file using private key
+async function finishDownload(encryptedBlob: Blob, fileKey: Uint8Array, fileName: string): Promise<void> {
+    // Step 3: Decrypt file using symmetric key
     console.log('Decrypting file...');
     
-    // Use the walletAddress parameter directly (same format as used for caching)
-    // This ensures we use the same address format that was used to cache the ECIES key
-    const keplr = getKeplr();
-    if (!keplr) {
-        throw new Error('Keplr not available');
-    }
-    
-    await keplr.enable(CHAIN_ID);
-    // Get the bech32Address to match the format used during wallet connection
-    const key = await (keplr as any).getKey(CHAIN_ID);
-    const userAddress = key.bech32Address;
-    
-    // Decrypt the file using private key (signature-based)
-    const decryptedBlob = await decryptFile(encryptedBlob, userAddress);
+    // Decrypt the file using symmetric key
+    const decryptedBlob = await decryptFile(encryptedBlob, fileKey);
     
     // Step 4: Save file
     console.log('Saving file:', fileName);
@@ -412,17 +401,138 @@ async function finishDownload(encryptedBlob: Blob, walletAddress: string, fileNa
     console.log('File downloaded successfully');
 }
 
+// Download shared file directly from storage provider
+// For shared files, the encrypted file key should be included in the shared file response
+export async function downloadSharedFile(
+    merkleRoot: string,
+    storageProviders: Array<{ provider_id?: string; provider_address?: string; providerAddress?: string }>,
+    metadata: any,
+    encryptedFileKeyBase64: string,
+    walletAddress: string,
+    $button?: JQuery<HTMLElement>
+): Promise<void> {
+    try {
+        if (!merkleRoot) {
+            throw new Error('Merkle root not found');
+        }
+        
+        if (!encryptedFileKeyBase64) {
+            throw new Error('Encrypted file key not found');
+        }
+        
+        if (storageProviders.length === 0) {
+            throw new Error('No storage providers available for this file');
+        }
+        
+        // Decrypt file key with recipient's private key
+        const encryptedFileKeyBytes = Uint8Array.from(atob(encryptedFileKeyBase64), c => c.charCodeAt(0));
+        const fileKey = await decryptFileKeyWithECIES(encryptedFileKeyBytes, walletAddress);
+        
+        // Use the first available storage provider
+        const provider = storageProviders[0];
+        const providerAddress = provider.provider_address || provider.providerAddress;
+        
+        if (!providerAddress) {
+            throw new Error('Storage provider address not found');
+        }
+        
+        // Get filename from metadata
+        const fileName = metadata.original_name || 'file';
+        
+        // Download complete file (server returns multipart with chunks)
+        let downloadUrl: string;
+        if (providerAddress.includes('storage.datavault.space')) {
+            // Use Caddy proxy
+            downloadUrl = `https://storage.datavault.space/api/storage/v1/files/download?merkle_root=${merkleRoot}`;
+        } else {
+            // Direct provider address
+            const baseUrl = providerAddress.startsWith('http') ? providerAddress : `https://${providerAddress}`;
+            downloadUrl = `${baseUrl}/api/storage/v1/files/download?merkle_root=${merkleRoot}`;
+        }
+        
+        console.log('Downloading shared file from:', downloadUrl);
+        const encryptedResponse = await fetchWithTimeout(downloadUrl, 60000); // 60 second timeout for file download
+        
+        if (!encryptedResponse.ok) {
+            throw new Error(`Failed to download file: ${encryptedResponse.status} ${encryptedResponse.statusText}`);
+        }
+        
+        // Extract metadata from response headers
+        const responseFileName = encryptedResponse.headers.get('X-Original-Name') || fileName;
+        const responseContentType = encryptedResponse.headers.get('X-Content-Type') || metadata.content_type;
+        const totalChunksHeader = encryptedResponse.headers.get('X-Total-Chunks');
+        const contentType = encryptedResponse.headers.get('Content-Type') || '';
+        
+        // Check if response is multipart
+        if (contentType.includes('multipart/byteranges')) {
+            // Parse multipart response with progress updates
+            console.log('Parsing multipart response...');
+            
+            // Get total chunks from main response header
+            const totalChunksNum = totalChunksHeader ? parseInt(totalChunksHeader, 10) : null;
+            console.log('Total chunks from main response header:', totalChunksNum);
+            
+            // Replace button with progress bar if button is provided
+            let $progressContainer: JQuery<HTMLElement> | null = null;
+            const progressId = 'download-progress-' + Date.now();
+            
+            if ($button && $button.length > 0) {
+                const $buttonContainer = $button.parent(); // div.mt-2
+                $buttonContainer.html(`
+                    <div class="progress" style="height: 20px; width: 100%;">
+                        <div id="${progressId}" class="progress-bar progress-bar-striped progress-bar-animated" 
+                             role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                            0%
+                        </div>
+                    </div>
+                `);
+                $progressContainer = $(`#${progressId}`);
+            }
+            
+            // Progress callback
+            const progressCallback = (chunkIndex: number, total: number) => {
+                const progress = ((chunkIndex + 1) / total) * 100;
+                console.log(`Progress update: chunk ${chunkIndex + 1}/${total} = ${Math.round(progress)}%`);
+                if ($progressContainer && $progressContainer.length > 0) {
+                    $progressContainer.css('width', `${progress}%`).attr('aria-valuenow', progress);
+                    $progressContainer.text(`${Math.round(progress)}%`);
+                }
+            };
+            
+            const encryptedBlob = await parseMultipartResponse(encryptedResponse, contentType, totalChunksNum, progressCallback);
+            console.log(`Downloaded and combined ${totalChunksHeader || 'unknown'} chunks: ${encryptedBlob.size} bytes`);
+            await finishDownload(encryptedBlob, fileKey, responseFileName);
+        } else {
+            // Fallback: treat as single blob
+            console.warn('Response is not multipart, treating as single blob');
+            const encryptedBlob = await encryptedResponse.blob();
+            console.log(`Downloaded encrypted file: ${encryptedBlob.size} bytes`);
+            await finishDownload(encryptedBlob, fileKey, responseFileName);
+        }
+        
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Download failed';
+        console.error('Download error:', error);
+        console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
+        showToast(`Download failed: ${errorMessage}`, 'error');
+        throw error;
+    }
+}
+
 // Download file from storage provider
 export async function downloadFile(fileMetadata: any, walletAddress: string, $button?: JQuery<HTMLElement>): Promise<void> {
     try {
-        // Step 1: Query file information from blockchain
-        const apiEndpoint = 'https://storage.datavault.space';
         // Handle both camelCase and snake_case for merkle root
         const merkleRoot = fileMetadata.merkleRoot || fileMetadata.merkle_root || '';
         if (!merkleRoot) {
             throw new Error('Merkle root not found in file metadata');
         }
         
+        // Get account's symmetric key from blockchain (all files use the same account key)
+        const accountKey = await getAccountKey(walletAddress);
+        
+        // Step 1: Query file information from blockchain to get storage providers
+        const apiEndpoint = 'https://storage.datavault.space';
         const downloadInfoUrl = `${apiEndpoint}/osd-blockchain/osdblockchain/v1/file/${merkleRoot}/download?owner=${walletAddress}`;
         
         console.log('Querying file info from:', downloadInfoUrl);
@@ -442,12 +552,6 @@ export async function downloadFile(fileMetadata: any, walletAddress: string, $bu
         
         // Get filename from original_name (hashed format stores original in original_name)
         const fileName = metadata.original_name || 'file';
-        
-        const originalFileHash = metadata.original_file_hash;
-        
-        if (!originalFileHash) {
-            throw new Error('Original file hash not found in metadata. This file may have been uploaded before hash storage was implemented.');
-        }
         
         // Step 2: Download complete encrypted file from storage provider
         // Server returns multipart response with chunks
@@ -546,14 +650,13 @@ export async function downloadFile(fileMetadata: any, walletAddress: string, $bu
             
             const encryptedBlob = await parseMultipartResponse(encryptedResponse, contentType, totalChunksNum, progressCallback);
             console.log(`Downloaded and combined ${totalChunksHeader || 'unknown'} chunks: ${encryptedBlob.size} bytes`);
-            await finishDownload(encryptedBlob, walletAddress, responseFileName);
+            await finishDownload(encryptedBlob, accountKey, responseFileName);
         } else {
-            // Fallback: treat as single blob (for backwards compatibility, though we said no backwards compat)
-            // Actually, if it's not multipart, it might be an error or different format
+            // Fallback: treat as single blob
             console.warn('Response is not multipart, treating as single blob');
             const encryptedBlob = await encryptedResponse.blob();
             console.log(`Downloaded encrypted file: ${encryptedBlob.size} bytes`);
-            await finishDownload(encryptedBlob, walletAddress, responseFileName);
+            await finishDownload(encryptedBlob, accountKey, responseFileName);
         }
         
     } catch (error) {

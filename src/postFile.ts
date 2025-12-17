@@ -14,7 +14,8 @@ export async function postFile(
     sizeBytes: number,
     expirationTime: number,
     maxProofs: number,
-    metadata: { name: string; content_type: string }
+    metadata: { name: string; content_type: string },
+    encryptedFileKey: string
 ): Promise<PostFileResult> {
     const keplr = getKeplr();
     if (!keplr) {
@@ -65,6 +66,7 @@ export async function postFile(
     console.log('Current account sequence:', account.sequence);
 
     // Create message using the generated type
+    // Note: encryptedFileKey will be added to the generated types after protobuf update
     const msg = {
         typeUrl: '/osdblockchain.osdblockchain.v1.MsgPostFile',
         value: MsgPostFile.fromPartial({
@@ -73,8 +75,9 @@ export async function postFile(
             sizeBytes: sizeBytes,  // number, not string
             expirationTime: expirationTime,  // number
             maxProofs: maxProofs,  // number
-            metadata: JSON.stringify(metadata)
-        })
+            metadata: JSON.stringify(metadata),
+            encryptedFileKey: encryptedFileKey
+        } as any) // Type assertion needed until generated types are updated
     };
 
     // Send transaction

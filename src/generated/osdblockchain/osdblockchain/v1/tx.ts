@@ -101,6 +101,8 @@ export interface MsgPostFile {
    * Can include: name, content_type, description, etc.
    */
   metadata: string;
+  /** encrypted_file_key is the Base64 encoded encrypted key for file decryption. */
+  encryptedFileKey: string;
 }
 
 /**
@@ -722,7 +724,15 @@ export const MsgExtendStorageDurationResponse: MessageFns<MsgExtendStorageDurati
 };
 
 function createBaseMsgPostFile(): MsgPostFile {
-  return { owner: "", merkleRoot: "", sizeBytes: 0, expirationTime: 0, maxProofs: 0, metadata: "" };
+  return {
+    owner: "",
+    merkleRoot: "",
+    sizeBytes: 0,
+    expirationTime: 0,
+    maxProofs: 0,
+    metadata: "",
+    encryptedFileKey: "",
+  };
 }
 
 export const MsgPostFile: MessageFns<MsgPostFile> = {
@@ -744,6 +754,9 @@ export const MsgPostFile: MessageFns<MsgPostFile> = {
     }
     if (message.metadata !== "") {
       writer.uint32(50).string(message.metadata);
+    }
+    if (message.encryptedFileKey !== "") {
+      writer.uint32(58).string(message.encryptedFileKey);
     }
     return writer;
   },
@@ -803,6 +816,14 @@ export const MsgPostFile: MessageFns<MsgPostFile> = {
           message.metadata = reader.string();
           continue;
         }
+        case 7: {
+          if (tag !== 58) {
+            break;
+          }
+
+          message.encryptedFileKey = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -820,6 +841,7 @@ export const MsgPostFile: MessageFns<MsgPostFile> = {
       expirationTime: isSet(object.expirationTime) ? globalThis.Number(object.expirationTime) : 0,
       maxProofs: isSet(object.maxProofs) ? globalThis.Number(object.maxProofs) : 0,
       metadata: isSet(object.metadata) ? globalThis.String(object.metadata) : "",
+      encryptedFileKey: isSet(object.encryptedFileKey) ? globalThis.String(object.encryptedFileKey) : "",
     };
   },
 
@@ -843,6 +865,9 @@ export const MsgPostFile: MessageFns<MsgPostFile> = {
     if (message.metadata !== "") {
       obj.metadata = message.metadata;
     }
+    if (message.encryptedFileKey !== "") {
+      obj.encryptedFileKey = message.encryptedFileKey;
+    }
     return obj;
   },
 
@@ -857,6 +882,7 @@ export const MsgPostFile: MessageFns<MsgPostFile> = {
     message.expirationTime = object.expirationTime ?? 0;
     message.maxProofs = object.maxProofs ?? 0;
     message.metadata = object.metadata ?? "";
+    message.encryptedFileKey = object.encryptedFileKey ?? "";
     return message;
   },
 };

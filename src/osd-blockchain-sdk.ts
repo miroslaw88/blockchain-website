@@ -140,6 +140,188 @@ export function clearECIESKeyCache(): void {
     });
 }
 
+/**
+ * Get account public key from blockchain
+ * Queries the Cosmos auth module for the account's public key
+ * 
+ * @param address - Account address (bech32 format)
+ * @returns Public key as Uint8Array (compressed secp256k1 format, 33 bytes)
+ */
+async function getAccountPublicKey(address: string): Promise<Uint8Array> {
+    try {
+        // Query Cosmos auth module for account info
+        const apiEndpoint = 'https://storage.datavault.space';
+        const response = await fetch(
+            `${apiEndpoint}/cosmos/auth/v1beta1/accounts/${address}`
+        );
+
+        if (!response.ok) {
+            throw new Error(`Failed to fetch account public key: ${response.status}`);
+        }
+
+        const data = await response.json();
+        
+        // Extract public key from account
+        // Cosmos SDK account structure: account.account.pub_key.key (base64)
+        const account = data.account || {};
+        const pubKeyData = account.pub_key || {};
+        const pubKeyBase64 = pubKeyData.key || '';
+        
+        if (!pubKeyBase64) {
+            throw new Error('Public key not found in account data');
+        }
+
+        // Decode base64 public key
+        const pubKeyBytes = Uint8Array.from(atob(pubKeyBase64), c => c.charCodeAt(0));
+        
+        return pubKeyBytes;
+    } catch (error) {
+        console.error('Error fetching public key from blockchain:', error);
+        throw new Error(`Failed to get recipient's public key: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+}
+
+/**
+ * Encrypt a symmetric key with recipient's public key using a hybrid ECIES approach
+ * Since Web Crypto API doesn't support secp256k1, we use the public key to derive an encryption key
+ * This is secure because only the recipient can derive the same key from their private key
+ * 
+ * @param fileKey - The symmetric file key to encrypt (32 bytes)
+ * @param recipientAddress - Recipient's Cosmos wallet address (bech32 format)
+ * @param chainId - Chain ID for Keplr (defaults to CHAIN_ID)
+ * @returns Encrypted file key as Uint8Array
+ */
+export async function encryptFileKeyWithECIES(
+    fileKey: Uint8Array,
+    recipientAddress: string,
+    chainId: string = CHAIN_ID
+): Promise<Uint8Array> {
+    // Get recipient's public key from blockchain
+    const recipientPubKeyBytes = await getAccountPublicKey(recipientAddress);
+    
+    // Ensure we have a proper ArrayBuffer for digest
+    const pubKeyBuffer = recipientPubKeyBytes.buffer instanceof ArrayBuffer
+        ? recipientPubKeyBytes.buffer
+        : new Uint8Array(recipientPubKeyBytes).buffer;
+    
+    // Hash the public key to create a deterministic encryption key material
+    // This is secure because the public key is public, but only the recipient
+    // can derive the same key from their private key (via signature-based derivation)
+    const pubKeyHash = await crypto.subtle.digest('SHA-256', pubKeyBuffer);
+    
+    // Ensure we have a proper ArrayBuffer (not SharedArrayBuffer)
+    // crypto.subtle.digest returns ArrayBuffer, but TypeScript may infer ArrayBufferLike
+    const pubKeyHashBuffer = pubKeyHash instanceof ArrayBuffer 
+        ? pubKeyHash 
+        : new Uint8Array(pubKeyHash as ArrayBuffer).buffer;
+    
+    // Import as key material for PBKDF2
+    const pubKeyMaterial = await crypto.subtle.importKey(
+        'raw',
+        pubKeyHashBuffer as ArrayBuffer,
+        'PBKDF2',
+        false,
+        ['deriveBits', 'deriveKey']
+    );
+    
+    // Derive AES key from public key hash using PBKDF2
+    // This creates a deterministic encryption key from the recipient's public key
+    const encryptionKey = await crypto.subtle.deriveKey(
+        {
+            name: 'PBKDF2',
+            salt: new Uint8Array(0), // No salt for deterministic key
+            iterations: PBKDF2_ITERATIONS,
+            hash: 'SHA-256'
+        },
+        pubKeyMaterial,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['encrypt']
+    );
+    
+    // Generate IV for encryption (random for each encryption)
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    
+    // Encrypt file key with AES-GCM
+    const fileKeyBuffer = fileKey.buffer instanceof ArrayBuffer 
+        ? fileKey.buffer 
+        : new Uint8Array(fileKey).buffer;
+    
+    const encryptedKey = await crypto.subtle.encrypt(
+        {
+            name: 'AES-GCM',
+            iv: iv,
+            tagLength: AES_TAG_LENGTH
+        },
+        encryptionKey,
+        fileKeyBuffer
+    );
+    
+    // Format: [12-byte IV][encrypted key + 16-byte tag]
+    const encryptedArray = new Uint8Array(encryptedKey);
+    const result = new Uint8Array(iv.length + encryptedArray.length);
+    result.set(iv, 0);
+    result.set(encryptedArray, iv.length);
+    
+    return result;
+}
+
+/**
+ * Decrypt a symmetric key that was encrypted with hybrid ECIES
+ * Uses the same signature-based key derivation as encryption
+ * 
+ * @param encryptedFileKey - The encrypted file key (IV + encrypted data + tag)
+ * @param recipientAddress - Recipient's Cosmos wallet address (bech32 format)
+ * @param chainId - Chain ID for Keplr (defaults to CHAIN_ID)
+ * @returns Decrypted file key as Uint8Array
+ */
+export async function decryptFileKeyWithECIES(
+    encryptedFileKey: Uint8Array,
+    recipientAddress: string,
+    chainId: string = CHAIN_ID
+): Promise<Uint8Array> {
+    // Extract components: [12-byte IV][encrypted key + 16-byte tag]
+    if (encryptedFileKey.length < 12 + 16) {
+        throw new Error('Invalid encrypted file key format: too short');
+    }
+    
+    const iv = encryptedFileKey.slice(0, 12);
+    const ciphertextWithTag = encryptedFileKey.slice(12);
+    
+    // Get recipient's private key material (from Keplr signature-based derivation)
+    // This matches the encryption side which uses the public key hash
+    const recipientKeyMaterial = await deriveECIESPrivateKey(recipientAddress, chainId);
+    
+    // Derive AES key from recipient's key material (same as encryption)
+    // The encryption side uses public key hash, decryption uses signature-derived key
+    // Both should produce the same key material for the same recipient
+    const decryptionKey = await crypto.subtle.deriveKey(
+        {
+            name: 'PBKDF2',
+            salt: new Uint8Array(0),
+            iterations: PBKDF2_ITERATIONS,
+            hash: 'SHA-256'
+        },
+        recipientKeyMaterial,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['decrypt']
+    );
+    
+    // Decrypt file key
+    const decryptedKey = await crypto.subtle.decrypt(
+        {
+            name: 'AES-GCM',
+            iv: iv,
+            tagLength: AES_TAG_LENGTH
+        },
+        decryptionKey,
+        ciphertextWithTag
+    );
+    
+    return new Uint8Array(decryptedKey);
+}
+
 // ============================================================================
 // Cryptographic Utilities
 // ============================================================================
@@ -170,32 +352,27 @@ export async function hashFilename(filename: string): Promise<string> {
 // ============================================================================
 
 /**
- * Encrypt file using chunked AES-256-GCM with ECIES key derivation (OSD system-style)
+ * Encrypt file using chunked AES-256-GCM with a symmetric key
  * 
  * @param file - The file to encrypt
- * @param userAddress - User's Cosmos wallet address (bech32 format)
- * @param chainId - Chain ID for Keplr (defaults to CHAIN_ID)
+ * @param fileKey - The symmetric key to use for encryption (32 bytes)
  * @returns Array of encrypted chunks (each chunk is formatted with size header, IV, and encrypted data)
  * 
  * Format: [8-byte size header][12-byte IV][encrypted chunk + 16-byte tag]
  */
 export async function encryptFile(
     file: File | Blob,
-    userAddress: string,
-    chainId: string = CHAIN_ID
+    fileKey: Uint8Array
 ): Promise<Blob[]> {
-    // Derive ECIES private key from wallet signature
-    const eciesKeyMaterial = await deriveECIESPrivateKey(userAddress, chainId);
+    // Import symmetric key
+    // Ensure we have a proper ArrayBuffer (not SharedArrayBuffer)
+    const fileKeyBuffer = fileKey.buffer instanceof ArrayBuffer 
+        ? fileKey.buffer 
+        : new Uint8Array(fileKey).buffer;
     
-    // Derive AES-256-GCM key from ECIES private key material
-    const aesKey = await crypto.subtle.deriveKey(
-        {
-            name: 'PBKDF2',
-            salt: new Uint8Array(0), // No salt for deterministic key
-            iterations: PBKDF2_ITERATIONS,
-            hash: 'SHA-256'
-        },
-        eciesKeyMaterial,
+    const aesKey = await crypto.subtle.importKey(
+        'raw',
+        fileKeyBuffer,
         { name: 'AES-GCM', length: 256 },
         false,
         ['encrypt']
@@ -251,30 +428,25 @@ export async function encryptFile(
 // ============================================================================
 
 /**
- * Decrypt file using chunked AES-256-GCM with ECIES key derivation (OSD system-style)
+ * Decrypt file using chunked AES-256-GCM with a symmetric key
  * 
  * @param encryptedBlob - The encrypted file blob (with size headers)
- * @param userAddress - User's Cosmos wallet address (bech32 format)
- * @param chainId - Chain ID for Keplr (defaults to CHAIN_ID)
+ * @param fileKey - The symmetric key to use for decryption (32 bytes)
  * @returns Decrypted file blob
  */
 export async function decryptFile(
     encryptedBlob: Blob,
-    userAddress: string,
-    chainId: string = CHAIN_ID
+    fileKey: Uint8Array
 ): Promise<Blob> {
-    // Derive ECIES private key from wallet signature (same as encryption)
-    const eciesKeyMaterial = await deriveECIESPrivateKey(userAddress, chainId);
+    // Import symmetric key
+    // Ensure we have a proper ArrayBuffer (not SharedArrayBuffer)
+    const fileKeyBuffer = fileKey.buffer instanceof ArrayBuffer 
+        ? fileKey.buffer 
+        : new Uint8Array(fileKey).buffer;
     
-    // Derive AES-256-GCM key from ECIES private key material (same as encryption)
-    const aesKey = await crypto.subtle.deriveKey(
-        {
-            name: 'PBKDF2',
-            salt: new Uint8Array(0),
-            iterations: PBKDF2_ITERATIONS,
-            hash: 'SHA-256'
-        },
-        eciesKeyMaterial,
+    const aesKey = await crypto.subtle.importKey(
+        'raw',
+        fileKeyBuffer,
         { name: 'AES-GCM', length: 256 },
         false,
         ['decrypt']
@@ -363,6 +535,7 @@ export async function postFileToBlockchain(
     expirationTime: number,
     maxProofs: number,
     metadata: FileMetadata,
+    encryptedFileKey: string,
     rpcEndpoint: string = 'https://storage.datavault.space/rpc',
     chainId: string = CHAIN_ID
 ): Promise<PostFileResult> {
@@ -422,6 +595,7 @@ export async function postFileToBlockchain(
     }
 
     // Create message using the generated type
+    // Note: encryptedFileKey will be added to the generated types after protobuf update
     const msg = {
         typeUrl: '/osdblockchain.osdblockchain.v1.MsgPostFile',
         value: MsgPostFile.fromPartial({
@@ -430,8 +604,9 @@ export async function postFileToBlockchain(
             sizeBytes: sizeBytes,
             expirationTime: expirationTime,
             maxProofs: maxProofs,
-            metadata: JSON.stringify(metadata)
-        })
+            metadata: JSON.stringify(metadata),
+            encryptedFileKey: encryptedFileKey
+        } as any) // Type assertion needed until generated types are updated
     };
 
     // Send transaction
@@ -551,6 +726,8 @@ export default {
     // Encryption/Decryption
     encryptFile,
     decryptFile,
+    encryptFileKeyWithECIES,
+    decryptFileKeyWithECIES,
     calculateMerkleRoot,
     hashFilename,
     

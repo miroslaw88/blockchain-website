@@ -10,6 +10,9 @@ export function getFilesViewTemplate(walletAddress: string): string {
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0" id="filesViewHeader">Files and Folders (0 files, 0 folders)</h5>
                 <div class="d-flex align-items-center gap-2">
+                    <button class="btn btn-sm btn-outline-secondary" id="sharedToolbarBtn" title="Shared">
+                        Shared
+                    </button>
                     <button class="btn btn-sm btn-outline-primary" id="createFolderToolbarBtn" title="Create Folder">
                         Create Folder
                     </button>
@@ -66,12 +69,63 @@ export function getFileThumbnailTemplate(
                                 <line x1="12" y1="15" x2="12" y2="3"></line>
                             </svg>
                         </button>
+                        <button class="btn btn-sm btn-info share-file-btn" data-merkle-root="${merkleRoot}" data-file-name="${fileName}" title="Share">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="18" cy="5" r="3"></circle>
+                                <circle cx="6" cy="12" r="3"></circle>
+                                <circle cx="18" cy="19" r="3"></circle>
+                                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+                                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+                            </svg>
+                        </button>
                         <button class="btn btn-sm btn-danger delete-file-btn" data-merkle-root="${merkleRoot}" data-file-name="${fileName}" title="Delete">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <polyline points="3 6 5 6 21 6"></polyline>
                                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                                 <line x1="10" y1="11" x2="10" y2="17"></line>
                                 <line x1="14" y1="11" x2="14" y2="17"></line>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="card-footer bg-transparent border-0 pt-0 pb-2">
+                    <small class="text-muted d-block" style="font-size: 0.75rem;">Uploaded: ${uploadDate}</small>
+                    <small class="text-muted d-block" style="font-size: 0.75rem;">Expires: ${expirationDate}</small>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Shared File Thumbnail Template (download only)
+ */
+export function getSharedFileThumbnailTemplate(
+    fileName: string,
+    fileSize: string,
+    uploadDate: string,
+    expirationDate: string,
+    merkleRoot: string,
+    contentType: string,
+    isExpired: boolean,
+    fileIcon: string
+): string {
+    return `
+        <div class="col-md-3 col-sm-4 col-6 mb-4">
+            <div class="card h-100 file-thumbnail ${isExpired ? 'border-warning' : ''}" style="transition: transform 0.2s;">
+                <div class="card-body text-center p-3">
+                    <div class="file-icon mb-2" style="color: #6c757d;">
+                        ${fileIcon}
+                    </div>
+                    <h6 class="card-title mb-1 text-truncate" style="font-size: 0.9rem;" title="${fileName}">${fileName}</h6>
+                    <p class="text-muted small mb-1">${fileSize}</p>
+                    ${isExpired ? '<span class="badge bg-warning text-dark mb-2">Expired</span>' : ''}
+                    <div class="mt-2 d-flex gap-2 justify-content-center">
+                        <button class="btn btn-sm btn-primary download-shared-btn" data-merkle-root="${merkleRoot}" data-file-name="${fileName}" title="Download">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="7 10 12 15 17 10"></polyline>
+                                <line x1="12" y1="15" x2="12" y2="3"></line>
                             </svg>
                         </button>
                     </div>
@@ -557,6 +611,108 @@ export function getDeleteFolderModalTemplate(folderName: string): string {
                             <span id="deleteFolderBtnText">Delete Folder</span>
                             <span id="deleteFolderSpinner" class="spinner-border spinner-border-sm ms-2 d-none" role="status"></span>
                         </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Share File Modal Template
+ */
+export function getShareFileModalTemplate(fileName: string): string {
+    return `
+        <div class="modal fade" id="shareFileModal" tabindex="-1" aria-labelledby="shareFileModalLabel" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header bg-info text-white">
+                        <h5 class="modal-title" id="shareFileModalLabel">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="me-2">
+                                <circle cx="18" cy="5" r="3"></circle>
+                                <circle cx="6" cy="12" r="3"></circle>
+                                <circle cx="18" cy="19" r="3"></circle>
+                                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+                                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+                            </svg>
+                            Share File
+                        </h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p class="mb-3">Share the following file with other users:</p>
+                        <div class="alert alert-info mb-3">
+                            <strong>${fileName}</strong>
+                        </div>
+                        <form id="shareFileForm">
+                            <div class="mb-3">
+                                <label for="shareAddress" class="form-label">Wallet Address</label>
+                                <input type="text" class="form-control" id="shareAddress" 
+                                       placeholder="cosmos1abc..." required autofocus>
+                                <div class="form-text">Enter the Cosmos wallet address to share with</div>
+                            </div>
+                            <div class="mb-3">
+                                <label for="shareExpiresAt" class="form-label">Expiration Date & Time</label>
+                                <input type="datetime-local" class="form-control" id="shareExpiresAt" required>
+                                <div class="form-text">Select the date and time when the share will expire</div>
+                            </div>
+                            <div id="shareFileStatus" class="alert alert-info mt-3 d-none" role="alert">
+                                <div class="d-flex align-items-center">
+                                    <div class="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
+                                    <span id="shareFileStatusText">Sharing file...</span>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" id="cancelShareFileBtn" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-info" id="confirmShareFileBtn">
+                            <span id="shareFileBtnText">Share File</span>
+                            <span id="shareFileSpinner" class="spinner-border spinner-border-sm ms-2 d-none" role="status"></span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Shared Accounts Modal Template
+ */
+export function getSharedAccountsModalTemplate(): string {
+    return `
+        <div class="modal fade" id="sharedAccountsModal" tabindex="-1" aria-labelledby="sharedAccountsModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered modal-xl" style="max-width: 90%;">
+                <div class="modal-content" style="height: 90vh; display: flex; flex-direction: column;">
+                    <div class="modal-header bg-secondary text-white">
+                        <h5 class="modal-title" id="sharedAccountsModalLabel">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="me-2">
+                                <circle cx="18" cy="5" r="3"></circle>
+                                <circle cx="6" cy="12" r="3"></circle>
+                                <circle cx="18" cy="19" r="3"></circle>
+                                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+                                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+                            </svg>
+                            <span id="sharedAccountsTitle">Shared Accounts</span>
+                        </h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body" style="flex: 1; overflow-y: auto; min-height: 0;">
+                        <div id="sharedAccountsStatus" class="alert alert-info d-none" role="alert">
+                            <div class="d-flex align-items-center">
+                                <div class="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
+                                <span id="sharedAccountsStatusText">Loading shared accounts...</span>
+                            </div>
+                        </div>
+                        <div id="sharedAccountsBreadcrumbs" class="mb-3"></div>
+                        <div id="sharedAccountsContent" class="d-none"></div>
+                        <div id="sharedAccountsError" class="alert alert-danger d-none" role="alert">
+                            <span id="sharedAccountsErrorText"></span>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
                     </div>
                 </div>
             </div>

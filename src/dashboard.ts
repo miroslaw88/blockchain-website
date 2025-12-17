@@ -8,6 +8,8 @@ import { extendStorageDuration } from './extendStorage';
 import { getExtendStorageModalTemplate } from './templates';
 import { getBuyStorageModalTemplate } from './templates';
 import { submitChunkMetadata } from './submitChunkMetadata';
+import { encryptFile, encryptFileKeyWithECIES, calculateMerkleRoot, hashFilename } from './osd-blockchain-sdk';
+import { getAccountKey } from './accountKey';
 
 // Payment calculation constants
 const PRICE_PER_BYTE = 0.0000000001; // $0.0000000001 per byte
@@ -58,6 +60,13 @@ export namespace Dashboard {
         return {
             indexer_address: activeIndexers[randomIndex].indexer_address
         };
+    }
+    
+    // Get all active indexers
+    export function getAllActiveIndexers(): Array<{ indexer_address: string }> {
+        return activeIndexers.map(indexer => ({
+            indexer_address: indexer.indexer_address
+        }));
     }
     
     // Wait for an indexer to become available (polling every 500ms, max 60 seconds)
@@ -189,88 +198,6 @@ export namespace Dashboard {
         });
     }
 
-
-    // Hash filename (like OSD system protocol)
-    async function hashFilename(filename: string): Promise<string> {
-        // Hash filename + timestamp (like OSD system: fileMeta.name + Date.now().toString())
-        const timestamp = Date.now().toString();
-        const dataToHash = filename + timestamp;
-        const hashBuffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(dataToHash));
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-    }
-
-    // Encrypt file using chunked AES-256-GCM with ECIES key derivation (OSD system-style)
-    // Returns array of encrypted chunks (each chunk is uploaded individually)
-    async function encryptFile(file: File, userAddress: string): Promise<Blob[]> {
-        const encryptionChunkSize = 32 * 1024 * 1024; // 32MB chunks (like OSD system)
-        
-        // Derive ECIES private key from wallet signature
-        const eciesKeyMaterial = await deriveECIESPrivateKey(userAddress);
-        
-        // Derive AES-256-GCM key from ECIES private key material
-        const aesKey = await crypto.subtle.deriveKey(
-            {
-                name: 'PBKDF2',
-                salt: new Uint8Array(0), // No salt for deterministic key
-                iterations: 10000,
-                hash: 'SHA-256'
-            },
-            eciesKeyMaterial,
-            { name: 'AES-GCM', length: 256 },
-            false,
-            ['encrypt']
-        );
-        
-        const encryptedChunks: Blob[] = [];
-        
-        // Encrypt file in chunks
-        for (let i = 0; i < file.size; i += encryptionChunkSize) {
-            const chunkBlob = file.slice(i, i + encryptionChunkSize);
-            const chunkData = await chunkBlob.arrayBuffer();
-            
-            // Generate IV (12 bytes for AES-GCM) for each chunk
-            const iv = crypto.getRandomValues(new Uint8Array(12));
-            
-            // Encrypt chunk with AES-256-GCM (includes authentication tag)
-            const encryptedChunkData = await crypto.subtle.encrypt(
-                { 
-                    name: 'AES-GCM',
-                    iv: iv,
-                    tagLength: 128 // 128-bit authentication tag
-                },
-                aesKey,
-                chunkData
-            );
-            
-            // Format: [8-byte size header][12-byte IV][encrypted chunk + 16-byte tag]
-            // Size header includes: IV (12) + encrypted data + tag (16)
-            const encryptedChunkArray = new Uint8Array(encryptedChunkData);
-            const chunkSize = iv.length + encryptedChunkArray.length; // 12 + encrypted + 16
-            
-            // Create size header (8 bytes, padded with zeros)
-            const sizeHeader = chunkSize.toString().padStart(8, '0');
-            const sizeHeaderBytes = new TextEncoder().encode(sizeHeader);
-            
-            // Combine: size header + IV + encrypted chunk
-            const combinedChunk = new Uint8Array(sizeHeaderBytes.length + chunkSize);
-            combinedChunk.set(sizeHeaderBytes, 0);
-            combinedChunk.set(iv, sizeHeaderBytes.length);
-            combinedChunk.set(encryptedChunkArray, sizeHeaderBytes.length + iv.length);
-            
-            encryptedChunks.push(new Blob([combinedChunk]));
-        }
-        
-        // Return array of encrypted chunks (each will be uploaded individually)
-        return encryptedChunks;
-    }
-
-    // Calculate Merkle root (SHA256 hash)
-    async function calculateMerkleRoot(data: ArrayBuffer): Promise<string> {
-        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-    }
 
     // Get random storage providers (deprecated - providers now come from transaction response)
     // Keeping for backwards compatibility but not used in upload flow
@@ -798,9 +725,22 @@ export namespace Dashboard {
             const fileData = await file.arrayBuffer();
             const originalFileHash = await calculateMerkleRoot(fileData);
 
-            // Step 3: Encrypt file (returns array of encrypted chunks)
-            updateUploadingFileProgress(uploadId, 10, 'Encrypting file...');
-            const encryptedChunks = await encryptFile(file, userAddress);
+            // Step 3: Get account key from blockchain and encrypt file
+            updateUploadingFileProgress(uploadId, 10, 'Getting account key...');
+            
+            // Get account's symmetric key from blockchain (encrypted with owner's key)
+            const accountKey = await getAccountKey(userAddress);
+            
+            updateUploadingFileProgress(uploadId, 15, 'Encrypting file...');
+            
+            // Encrypt file with account key (all files use the same account key)
+            const encryptedChunks = await encryptFile(file, accountKey);
+            
+            // Encrypt account key with owner's public key for storage in transaction
+            // Note: This is for backwards compatibility. The account key is already stored on blockchain,
+            // but we include it here in case the file needs to be decrypted independently
+            const encryptedFileKeyBytes = await encryptFileKeyWithECIES(accountKey, userAddress);
+            const encryptedFileKeyBase64 = btoa(String.fromCharCode(...encryptedFileKeyBytes));
 
             // Step 4: Calculate Merkle roots
             // - Individual merkle root for each chunk (for provider validation)
@@ -857,7 +797,8 @@ export namespace Dashboard {
                 totalEncryptedSize,
                 expirationTime,
                 3,
-                metadata
+                metadata,
+                encryptedFileKeyBase64
             );
 
             // Step 7: Upload chunks to storage provider (use providers from transaction response)
