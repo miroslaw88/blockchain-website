@@ -71,6 +71,8 @@ export interface QueryAccountKeyRequest {
 export interface QueryAccountKeyResponse {
   /** encrypted_account_key is the Base64 encoded encrypted symmetric key. */
   encryptedAccountKey: string;
+  /** public_key is the account's public key in base64 format. */
+  publicKey: string;
 }
 
 /** QueryFileRequest is request type for the Query/File RPC method. */
@@ -748,13 +750,16 @@ export const QueryAccountKeyRequest: MessageFns<QueryAccountKeyRequest> = {
 };
 
 function createBaseQueryAccountKeyResponse(): QueryAccountKeyResponse {
-  return { encryptedAccountKey: "" };
+  return { encryptedAccountKey: "", publicKey: "" };
 }
 
 export const QueryAccountKeyResponse: MessageFns<QueryAccountKeyResponse> = {
   encode(message: QueryAccountKeyResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.encryptedAccountKey !== "") {
       writer.uint32(10).string(message.encryptedAccountKey);
+    }
+    if (message.publicKey !== "") {
+      writer.uint32(18).string(message.publicKey);
     }
     return writer;
   },
@@ -774,6 +779,14 @@ export const QueryAccountKeyResponse: MessageFns<QueryAccountKeyResponse> = {
           message.encryptedAccountKey = reader.string();
           continue;
         }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.publicKey = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -786,6 +799,7 @@ export const QueryAccountKeyResponse: MessageFns<QueryAccountKeyResponse> = {
   fromJSON(object: any): QueryAccountKeyResponse {
     return {
       encryptedAccountKey: isSet(object.encryptedAccountKey) ? globalThis.String(object.encryptedAccountKey) : "",
+      publicKey: isSet(object.publicKey) ? globalThis.String(object.publicKey) : "",
     };
   },
 
@@ -793,6 +807,9 @@ export const QueryAccountKeyResponse: MessageFns<QueryAccountKeyResponse> = {
     const obj: any = {};
     if (message.encryptedAccountKey !== "") {
       obj.encryptedAccountKey = message.encryptedAccountKey;
+    }
+    if (message.publicKey !== "") {
+      obj.publicKey = message.publicKey;
     }
     return obj;
   },
@@ -803,6 +820,7 @@ export const QueryAccountKeyResponse: MessageFns<QueryAccountKeyResponse> = {
   fromPartial<I extends Exact<DeepPartial<QueryAccountKeyResponse>, I>>(object: I): QueryAccountKeyResponse {
     const message = createBaseQueryAccountKeyResponse();
     message.encryptedAccountKey = object.encryptedAccountKey ?? "";
+    message.publicKey = object.publicKey ?? "";
     return message;
   },
 };

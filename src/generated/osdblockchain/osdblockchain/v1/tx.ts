@@ -75,6 +75,27 @@ export interface MsgExtendStorageDurationResponse {
 }
 
 /**
+ * MsgGenerateAccountKey is the Msg/GenerateAccountKey request type.
+ * This message generates and stores an encrypted symmetric key for the account.
+ * The key is encrypted with the account's public key and can be used for file encryption.
+ */
+export interface MsgGenerateAccountKey {
+  /** owner is the address that owns the account key (must match signer). */
+  owner: string;
+}
+
+/**
+ * MsgGenerateAccountKeyResponse defines the response structure for executing a
+ * MsgGenerateAccountKey message.
+ */
+export interface MsgGenerateAccountKeyResponse {
+  /** encrypted_account_key is the Base64 encoded encrypted symmetric key. */
+  encryptedAccountKey: string;
+  /** key_generated indicates whether a new key was generated (true) or an existing key was returned (false). */
+  keyGenerated: boolean;
+}
+
+/**
  * MsgPostFile is the Msg/PostFile request type.
  * This message is used to post file metadata to the chain after the file has been
  * prepared (split into chunks and Merkle root computed) but before it's uploaded to storage providers.
@@ -719,6 +740,142 @@ export const MsgExtendStorageDurationResponse: MessageFns<MsgExtendStorageDurati
     const message = createBaseMsgExtendStorageDurationResponse();
     message.extendedDurationDays = object.extendedDurationDays ?? 0;
     message.newEndTime = object.newEndTime ?? 0;
+    return message;
+  },
+};
+
+function createBaseMsgGenerateAccountKey(): MsgGenerateAccountKey {
+  return { owner: "" };
+}
+
+export const MsgGenerateAccountKey: MessageFns<MsgGenerateAccountKey> = {
+  encode(message: MsgGenerateAccountKey, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.owner !== "") {
+      writer.uint32(10).string(message.owner);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): MsgGenerateAccountKey {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseMsgGenerateAccountKey();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.owner = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): MsgGenerateAccountKey {
+    return { owner: isSet(object.owner) ? globalThis.String(object.owner) : "" };
+  },
+
+  toJSON(message: MsgGenerateAccountKey): unknown {
+    const obj: any = {};
+    if (message.owner !== "") {
+      obj.owner = message.owner;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<MsgGenerateAccountKey>, I>>(base?: I): MsgGenerateAccountKey {
+    return MsgGenerateAccountKey.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<MsgGenerateAccountKey>, I>>(object: I): MsgGenerateAccountKey {
+    const message = createBaseMsgGenerateAccountKey();
+    message.owner = object.owner ?? "";
+    return message;
+  },
+};
+
+function createBaseMsgGenerateAccountKeyResponse(): MsgGenerateAccountKeyResponse {
+  return { encryptedAccountKey: "", keyGenerated: false };
+}
+
+export const MsgGenerateAccountKeyResponse: MessageFns<MsgGenerateAccountKeyResponse> = {
+  encode(message: MsgGenerateAccountKeyResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.encryptedAccountKey !== "") {
+      writer.uint32(10).string(message.encryptedAccountKey);
+    }
+    if (message.keyGenerated !== false) {
+      writer.uint32(16).bool(message.keyGenerated);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): MsgGenerateAccountKeyResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseMsgGenerateAccountKeyResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.encryptedAccountKey = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.keyGenerated = reader.bool();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): MsgGenerateAccountKeyResponse {
+    return {
+      encryptedAccountKey: isSet(object.encryptedAccountKey) ? globalThis.String(object.encryptedAccountKey) : "",
+      keyGenerated: isSet(object.keyGenerated) ? globalThis.Boolean(object.keyGenerated) : false,
+    };
+  },
+
+  toJSON(message: MsgGenerateAccountKeyResponse): unknown {
+    const obj: any = {};
+    if (message.encryptedAccountKey !== "") {
+      obj.encryptedAccountKey = message.encryptedAccountKey;
+    }
+    if (message.keyGenerated !== false) {
+      obj.keyGenerated = message.keyGenerated;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<MsgGenerateAccountKeyResponse>, I>>(base?: I): MsgGenerateAccountKeyResponse {
+    return MsgGenerateAccountKeyResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<MsgGenerateAccountKeyResponse>, I>>(
+    object: I,
+  ): MsgGenerateAccountKeyResponse {
+    const message = createBaseMsgGenerateAccountKeyResponse();
+    message.encryptedAccountKey = object.encryptedAccountKey ?? "";
+    message.keyGenerated = object.keyGenerated ?? false;
     return message;
   },
 };
@@ -2016,6 +2173,11 @@ export interface Msg {
    * based on the storage amount purchased.
    */
   ExtendStorageDuration(request: MsgExtendStorageDuration): Promise<MsgExtendStorageDurationResponse>;
+  /**
+   * GenerateAccountKey generates and stores an encrypted symmetric key for the account.
+   * This key is used for file encryption and sharing. The key is encrypted with the account's public key.
+   */
+  GenerateAccountKey(request: MsgGenerateAccountKey): Promise<MsgGenerateAccountKeyResponse>;
   /** PostFile defines a message for posting file metadata to the chain. */
   PostFile(request: MsgPostFile): Promise<MsgPostFileResponse>;
   /** RegisterIndexer registers a new indexer and assigns it a hash prefix range. */
@@ -2060,6 +2222,7 @@ export class MsgClientImpl implements Msg {
     this.UpdateParams = this.UpdateParams.bind(this);
     this.BuyStorage = this.BuyStorage.bind(this);
     this.ExtendStorageDuration = this.ExtendStorageDuration.bind(this);
+    this.GenerateAccountKey = this.GenerateAccountKey.bind(this);
     this.PostFile = this.PostFile.bind(this);
     this.RegisterIndexer = this.RegisterIndexer.bind(this);
     this.UpdateIndexerRange = this.UpdateIndexerRange.bind(this);
@@ -2085,6 +2248,12 @@ export class MsgClientImpl implements Msg {
     const data = MsgExtendStorageDuration.encode(request).finish();
     const promise = this.rpc.request(this.service, "ExtendStorageDuration", data);
     return promise.then((data) => MsgExtendStorageDurationResponse.decode(new BinaryReader(data)));
+  }
+
+  GenerateAccountKey(request: MsgGenerateAccountKey): Promise<MsgGenerateAccountKeyResponse> {
+    const data = MsgGenerateAccountKey.encode(request).finish();
+    const promise = this.rpc.request(this.service, "GenerateAccountKey", data);
+    return promise.then((data) => MsgGenerateAccountKeyResponse.decode(new BinaryReader(data)));
   }
 
   PostFile(request: MsgPostFile): Promise<MsgPostFileResponse> {

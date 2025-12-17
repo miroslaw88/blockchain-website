@@ -95,6 +95,29 @@ export function updateWalletAddressDisplay(address: string | null): void {
     }
 }
 
+// Format encryption key for display (show first 8 and last 8 bytes in hex)
+export function formatEncryptionKey(keyBase64: string): string {
+    try {
+        // Decode base64 to get bytes
+        const keyBytes = Uint8Array.from(atob(keyBase64), c => c.charCodeAt(0));
+        
+        // Show first 8 bytes and last 8 bytes in hex
+        const first8 = Array.from(keyBytes.slice(0, 8))
+            .map(b => b.toString(16).padStart(2, '0'))
+            .join('');
+        const last8 = Array.from(keyBytes.slice(keyBytes.length - 8))
+            .map(b => b.toString(16).padStart(2, '0'))
+            .join('');
+        
+        return `${first8}...${last8}`;
+    } catch (e) {
+        // If decoding fails, just show truncated base64
+        return keyBase64.length > 16 
+            ? `${keyBase64.substring(0, 8)}...${keyBase64.substring(keyBase64.length - 8)}`
+            : keyBase64;
+    }
+}
+
 // Format date as YYYY-MM-DD with time (for file expiration, storage expiration, etc.)
 export function formatDate(timestamp: number): string {
     if (!timestamp || timestamp === 0) {

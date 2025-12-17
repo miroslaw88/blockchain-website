@@ -100,6 +100,70 @@ export async function getAccountKey(walletAddress: string): Promise<Uint8Array> 
 }
 
 /**
+ * Check if account key exists on blockchain
+ * 
+ * @param walletAddress - The wallet address to check
+ * @returns true if key exists, false if not found (404), throws on other errors
+ */
+export async function hasAccountKey(walletAddress: string): Promise<boolean> {
+    try {
+        const apiEndpoint = 'https://storage.datavault.space';
+        const response = await fetch(
+            `${apiEndpoint}/osd-blockchain/osdblockchain/v1/account/${walletAddress}/key`
+        );
+
+        if (response.status === 404) {
+            return false;
+        }
+
+        if (!response.ok) {
+            throw new Error(`Failed to check account key: ${response.status} ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        const encryptedAccountKeyBase64 = data.encrypted_account_key || data.encryptedAccountKey || '';
+        
+        return !!encryptedAccountKeyBase64;
+    } catch (error) {
+        // If it's a 404, return false (key doesn't exist)
+        if (error instanceof Error && error.message.includes('404')) {
+            return false;
+        }
+        // For other errors, re-throw
+        throw error;
+    }
+}
+
+/**
+ * Get encrypted account key from blockchain (without decrypting)
+ * 
+ * @param walletAddress - The wallet address to get the encrypted key for
+ * @returns Base64 encoded encrypted account key
+ */
+export async function getEncryptedAccountKey(walletAddress: string): Promise<string> {
+    const apiEndpoint = 'https://storage.datavault.space';
+    const response = await fetch(
+        `${apiEndpoint}/osd-blockchain/osdblockchain/v1/account/${walletAddress}/key`
+    );
+
+    if (!response.ok) {
+        if (response.status === 404) {
+            throw new Error('Account key not found');
+        }
+        throw new Error(`Failed to fetch account key: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    const encryptedAccountKeyBase64 = data.encrypted_account_key || data.encryptedAccountKey || '';
+    
+    if (!encryptedAccountKeyBase64) {
+        throw new Error('Account key not found in response');
+    }
+    
+    return encryptedAccountKeyBase64;
+}
+
+/**
  * Clear account key cache (useful for logout/disconnect)
  */
 export function clearAccountKeyCache(): void {

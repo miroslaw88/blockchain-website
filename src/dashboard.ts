@@ -9,7 +9,10 @@ import { getExtendStorageModalTemplate } from './templates';
 import { getBuyStorageModalTemplate } from './templates';
 import { submitChunkMetadata } from './submitChunkMetadata';
 import { encryptFile, encryptFileKeyWithECIES, calculateMerkleRoot, hashFilename } from './osd-blockchain-sdk';
-import { getAccountKey } from './accountKey';
+import { getAccountKey, hasAccountKey, getEncryptedAccountKey, clearAccountKeyCache } from './accountKey';
+import { formatEncryptionKey } from './utils';
+import { generateAccountKey } from './generateAccountKey';
+import { showToast } from './fetchFiles';
 
 // Payment calculation constants
 const PRICE_PER_BYTE = 0.0000000001; // $0.0000000001 per byte
@@ -975,10 +978,96 @@ export namespace Dashboard {
         }, 5000);
     }
 
+    // Check if account has a key and update header display
+    async function checkAndUpdateAccountKeyStatus(walletAddress: string): Promise<void> {
+        const $keyStatus = $('#accountKeyStatus');
+        if ($keyStatus.length === 0) return;
+
+        try {
+            const hasKey = await hasAccountKey(walletAddress);
+            
+            if (hasKey) {
+                // Key exists - display the encrypted key
+                try {
+                    const encryptedKey = await getEncryptedAccountKey(walletAddress);
+                    const formattedKey = formatEncryptionKey(encryptedKey);
+                    
+                    $keyStatus.html(`
+                        <span class="text-muted small" style="font-family: monospace;">Key: ${formattedKey}</span>
+                    `);
+                } catch (error) {
+                    console.error('Error fetching encrypted key for display:', error);
+                    $keyStatus.html('<span class="text-muted small">Key: Error loading</span>');
+                }
+            } else {
+                // No key - show "Generate Symmetric Key" button
+                $keyStatus.html(`
+                    <button id="generateKeyBtn" class="btn btn-sm btn-outline-primary">
+                        Generate Symmetric Key
+                    </button>
+                `);
+            }
+        } catch (error) {
+            console.error('Error checking account key status:', error);
+            // On error, don't show anything (or show error state)
+            $keyStatus.html('<span class="text-muted small text-danger">Error checking key</span>');
+        }
+    }
+
+    // Handle generate account key button click
+    async function handleGenerateAccountKey(): Promise<void> {
+        const $button = $('#generateKeyBtn');
+        const walletAddress = sessionStorage.getItem('walletAddress');
+        
+        if (!walletAddress) {
+            showToast('Wallet address not found', 'error');
+            return;
+        }
+
+        // Disable button and show loading state
+        $button.prop('disabled', true);
+        const originalText = $button.text();
+        $button.html(`
+            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+            Generating...
+        `);
+
+        try {
+            const result = await generateAccountKey();
+
+            if (result.success) {
+                showToast(
+                    `Account key generated successfully! Tx: ${result.transactionHash?.substring(0, 8)}...`,
+                    'success'
+                );
+
+                // Clear the account key cache so it gets refreshed
+                clearAccountKeyCache();
+
+                // Refresh the key status display
+                await checkAndUpdateAccountKeyStatus(walletAddress);
+            } else {
+                showToast(`Failed to generate account key: ${result.error || 'Unknown error'}`, 'error');
+                // Re-enable button
+                $button.prop('disabled', false);
+                $button.text(originalText);
+            }
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            showToast(`Error generating account key: ${errorMessage}`, 'error');
+            // Re-enable button
+            $button.prop('disabled', false);
+            $button.text(originalText);
+        }
+    }
+
     // Initialize dashboard
     export function init() {
         // Disconnect button
         $('#disconnectBtn').on('click', disconnectWallet);
+
+        // Generate account key button (delegated event handler for dynamically added button)
+        $(document).on('click', '#generateKeyBtn', handleGenerateAccountKey);
 
         // Initialize drag and drop
         initDragAndDrop();
@@ -1024,6 +1113,9 @@ export namespace Dashboard {
         const walletAddress = sessionStorage.getItem('walletAddress');
         if (walletAddress) {
             updateWalletAddressDisplay(walletAddress);
+            
+            // Check account key status and update header
+            checkAndUpdateAccountKeyStatus(walletAddress);
             
             // Fetch and display storage stats
             fetchStorageStats(walletAddress, showBuyStorageModal, showExtendStorageModal);
