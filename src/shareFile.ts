@@ -42,9 +42,34 @@ export async function shareFile(
     };
     
     // Add encrypted file key if provided (encrypted with recipient's public key)
-    if (encryptedFileKeyForRecipient) {
-        payload.encrypted_file_key = encryptedFileKeyForRecipient;
+    // Structure as object mapping recipient addresses to their encrypted keys
+    // The indexer expects encrypted_file_keys (plural) for each recipient in shared_with
+    if (!encryptedFileKeyForRecipient || encryptedFileKeyForRecipient.trim() === '') {
+        throw new Error('Encrypted file key is required for sharing. Please ensure the recipient has an account key.');
     }
+    
+    if (sharedWith.length === 0) {
+        throw new Error('At least one recipient address is required for sharing.');
+    }
+    
+    // Create encrypted_file_keys (plural) object mapping each recipient to their encrypted key
+    // For now, we only support one recipient at a time in the UI, so we use the same key for all
+    // In the future, if we support multiple recipients, we'd need to encrypt the key for each recipient separately
+    payload.encrypted_file_keys = {};
+    for (const recipient of sharedWith) {
+        payload.encrypted_file_keys[recipient] = encryptedFileKeyForRecipient;
+    }
+    
+    // Debug: Log the payload structure (truncate key for security)
+    console.log('Share file payload structure:', {
+        share_type: payload.share_type,
+        shared_with: payload.shared_with,
+        expires_at: payload.expires_at,
+        encrypted_file_keys: Object.keys(payload.encrypted_file_keys).reduce((acc, key) => {
+            acc[key] = payload.encrypted_file_keys[key].substring(0, 20) + '...';
+            return acc;
+        }, {} as any)
+    });
     
     const results = await Promise.allSettled(
         activeIndexers.map(async (indexer) => {

@@ -955,12 +955,10 @@ export namespace Dashboard {
             }
             
             const data = await response.json();
-            console.log('Active Indexers:', data);
             
             // Store active indexers
             if (data.indexers && Array.isArray(data.indexers)) {
                 activeIndexers = data.indexers.filter((indexer: any) => indexer.is_active === true);
-                console.log(`Stored ${activeIndexers.length} active indexers`);
             }
         } catch (error) {
             console.error('Error querying active indexers:', error);

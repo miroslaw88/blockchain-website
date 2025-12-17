@@ -288,11 +288,23 @@ async function fetchSharedFiles(accountAddress: string, requesterAddress: string
                 const merkleRoot = file.merkle_root || '';
                 const storageProviders = entry.storage_providers || [];
                 
-                // Get encrypted file key from entry (if available in response)
-                // For shared files, this should be the key encrypted with recipient's key
-                const encryptedFileKey = entry.encrypted_file_key || entry.encryptedFileKey || '';
+                // Get encrypted file key from entry
+                // The indexer returns encrypted_file_key (singular) in the file object
+                // This is the key encrypted with the recipient's public key
+                const encryptedFileKey = file.encrypted_file_key || file.encryptedFileKey || '';
+                
+                // Debug: Log the encrypted file key from the response
+                console.log('Extracting encrypted file key from entry:', {
+                    hasEncryptedFileKey: !!encryptedFileKey,
+                    encryptedFileKeyLength: encryptedFileKey.length,
+                    encryptedFileKeyPreview: encryptedFileKey.substring(0, 30) + '...',
+                    fileKeys: Object.keys(file)
+                });
                 
                 // Store storage providers, metadata, and encrypted file key in data attributes for download
+                // Use HTML entity encoding for the encrypted key to avoid issues with special characters
+                const escapedEncryptedKey = encryptedFileKey.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+                
                 return getSharedFileThumbnailTemplate(
                     fileName,
                     fileSize,
@@ -304,7 +316,7 @@ async function fetchSharedFiles(accountAddress: string, requesterAddress: string
                     getFileIcon(contentType)
                 ).replace(
                     'data-merkle-root="' + merkleRoot + '"',
-                    `data-merkle-root="${merkleRoot}" data-storage-providers='${JSON.stringify(storageProviders)}' data-file-metadata='${JSON.stringify(metadata)}' data-encrypted-file-key="${encryptedFileKey}"`
+                    `data-merkle-root="${merkleRoot}" data-storage-providers='${JSON.stringify(storageProviders)}' data-file-metadata='${JSON.stringify(metadata)}' data-encrypted-file-key="${escapedEncryptedKey}"`
                 );
             }).filter(html => html !== '').join('');
             
@@ -320,12 +332,22 @@ async function fetchSharedFiles(accountAddress: string, requesterAddress: string
                 const fileMetadataStr = $button.attr('data-file-metadata') || '{}';
                 const encryptedFileKey = $button.attr('data-encrypted-file-key') || '';
                 
+                // Debug: Log all extracted data
+                console.log('=== Download Shared File - Extracted Data ===');
+                console.log('Merkle Root:', merkleRoot);
+                console.log('Storage Providers (raw):', storageProvidersStr);
+                console.log('File Metadata (raw):', fileMetadataStr);
+                console.log('Encrypted File Key (raw):', encryptedFileKey);
+                console.log('Encrypted File Key length:', encryptedFileKey.length);
+                console.log('Requester Address:', requesterAddress);
+                
                 if (!merkleRoot) {
                     showToast('File identifier not found', 'error');
                     return;
                 }
                 
                 if (!encryptedFileKey) {
+                    console.error('Encrypted file key is empty or missing');
                     showToast('Encrypted file key not found. File may not be properly shared.', 'error');
                     return;
                 }
@@ -336,6 +358,11 @@ async function fetchSharedFiles(accountAddress: string, requesterAddress: string
                 try {
                     storageProviders = JSON.parse(storageProvidersStr);
                     fileMetadata = JSON.parse(fileMetadataStr);
+                    
+                    // Debug: Log parsed data
+                    console.log('Storage Providers (parsed):', storageProviders);
+                    console.log('File Metadata (parsed):', fileMetadata);
+                    console.log('Encrypted File Key (preview):', encryptedFileKey.substring(0, 50) + '...');
                 } catch (e) {
                     console.error('Failed to parse storage providers or metadata:', e);
                     showToast('Failed to parse file data', 'error');
