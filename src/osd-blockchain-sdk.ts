@@ -140,39 +140,51 @@ export function clearECIESKeyCache(): void {
     });
 }
 
+// Cache for public keys (per address)
+const publicKeyCache: { [address: string]: Uint8Array } = {};
+
 /**
  * Get account public key from blockchain
- * Queries the Cosmos auth module for the account's public key
+ * Queries the account key endpoint: GET /osd-blockchain/osdblockchain/v1/account/{address}/key
+ * The response should include the public_key field
  * 
  * @param address - Account address (bech32 format)
  * @returns Public key as Uint8Array (compressed secp256k1 format, 33 bytes)
  */
 async function getAccountPublicKey(address: string): Promise<Uint8Array> {
+    // Check cache first
+    if (publicKeyCache[address]) {
+        return publicKeyCache[address];
+    }
+
     try {
-        // Query Cosmos auth module for account info
         const apiEndpoint = 'https://storage.datavault.space';
+        
+        // Query the account key endpoint
+        // Expected response: { "encrypted_account_key": "...", "public_key": "..." }
         const response = await fetch(
-            `${apiEndpoint}/cosmos/auth/v1beta1/accounts/${address}`
+            `${apiEndpoint}/osd-blockchain/osdblockchain/v1/account/${address}/key`
         );
 
         if (!response.ok) {
-            throw new Error(`Failed to fetch account public key: ${response.status}`);
+            throw new Error(`Failed to fetch account public key: ${response.status} ${response.statusText}`);
         }
 
         const data = await response.json();
         
-        // Extract public key from account
-        // Cosmos SDK account structure: account.account.pub_key.key (base64)
-        const account = data.account || {};
-        const pubKeyData = account.pub_key || {};
-        const pubKeyBase64 = pubKeyData.key || '';
+        // Extract public key from response
+        // Support both snake_case and camelCase
+        const pubKeyBase64 = data.public_key || data.publicKey || '';
         
         if (!pubKeyBase64) {
-            throw new Error('Public key not found in account data');
+            throw new Error('Public key not found in account key response. The blockchain should include "public_key" in the /key endpoint response.');
         }
 
         // Decode base64 public key
         const pubKeyBytes = Uint8Array.from(atob(pubKeyBase64), c => c.charCodeAt(0));
+        
+        // Cache the public key
+        publicKeyCache[address] = pubKeyBytes;
         
         return pubKeyBytes;
     } catch (error) {
@@ -268,7 +280,7 @@ export async function encryptFileKeyWithECIES(
 
 /**
  * Decrypt a symmetric key that was encrypted with hybrid ECIES
- * Uses the same signature-based key derivation as encryption
+ * Uses public key hash for key derivation (matches blockchain encryption method)
  * 
  * @param encryptedFileKey - The encrypted file key (IV + encrypted data + tag)
  * @param recipientAddress - Recipient's Cosmos wallet address (bech32 format)
@@ -288,38 +300,80 @@ export async function decryptFileKeyWithECIES(
     const iv = encryptedFileKey.slice(0, 12);
     const ciphertextWithTag = encryptedFileKey.slice(12);
     
-    // Get recipient's private key material (from Keplr signature-based derivation)
-    // This matches the encryption side which uses the public key hash
-    const recipientKeyMaterial = await deriveECIESPrivateKey(recipientAddress, chainId);
+    // Get recipient's public key from blockchain (same as encryption side)
+    const recipientPubKeyBytes = await getAccountPublicKey(recipientAddress);
     
-    // Derive AES key from recipient's key material (same as encryption)
-    // The encryption side uses public key hash, decryption uses signature-derived key
-    // Both should produce the same key material for the same recipient
+    // Ensure we have a proper ArrayBuffer for digest
+    const pubKeyBuffer = recipientPubKeyBytes.buffer instanceof ArrayBuffer
+        ? recipientPubKeyBytes.buffer
+        : new Uint8Array(recipientPubKeyBytes).buffer;
+    
+    // Hash the public key to create the same key material as encryption
+    // This matches the blockchain's encryption method exactly
+    const pubKeyHash = await crypto.subtle.digest('SHA-256', pubKeyBuffer);
+    
+    // Ensure we have a proper ArrayBuffer (not SharedArrayBuffer)
+    const pubKeyHashBuffer = pubKeyHash instanceof ArrayBuffer 
+        ? pubKeyHash 
+        : new Uint8Array(pubKeyHash as ArrayBuffer).buffer;
+    
+    // Import as key material for PBKDF2 (same as encryption)
+    const pubKeyMaterial = await crypto.subtle.importKey(
+        'raw',
+        pubKeyHashBuffer as ArrayBuffer,
+        'PBKDF2',
+        false,
+        ['deriveBits', 'deriveKey']
+    );
+    
+    // Derive AES key from public key hash using PBKDF2 (same as encryption)
     const decryptionKey = await crypto.subtle.deriveKey(
         {
             name: 'PBKDF2',
-            salt: new Uint8Array(0),
+            salt: new Uint8Array(0), // No salt for deterministic key (matches blockchain)
             iterations: PBKDF2_ITERATIONS,
             hash: 'SHA-256'
         },
-        recipientKeyMaterial,
+        pubKeyMaterial,
         { name: 'AES-GCM', length: 256 },
         false,
         ['decrypt']
     );
     
     // Decrypt file key
-    const decryptedKey = await crypto.subtle.decrypt(
-        {
-            name: 'AES-GCM',
-            iv: iv,
-            tagLength: AES_TAG_LENGTH
-        },
-        decryptionKey,
-        ciphertextWithTag
-    );
-    
-    return new Uint8Array(decryptedKey);
+    try {
+        const decryptedKey = await crypto.subtle.decrypt(
+            {
+                name: 'AES-GCM',
+                iv: iv,
+                tagLength: AES_TAG_LENGTH
+            },
+            decryptionKey,
+            ciphertextWithTag
+        );
+        
+        const result = new Uint8Array(decryptedKey);
+        
+        // Validate decrypted key length (should be 32 bytes for account key)
+        if (result.length !== 32) {
+            console.warn(`Decrypted key length is ${result.length} bytes, expected 32 bytes`);
+        }
+        
+        return result;
+    } catch (error) {
+        console.error('Error in decryptFileKeyWithECIES:', {
+            error,
+            encryptedKeyLength: encryptedFileKey.length,
+            ivLength: iv.length,
+            ciphertextLength: ciphertextWithTag.length,
+            recipientAddress
+        });
+        
+        if (error instanceof DOMException) {
+            throw new Error(`Decryption failed: ${error.message}. This may indicate the encrypted key was not encrypted with the correct public key or the format is incorrect.`);
+        }
+        throw error;
+    }
 }
 
 // ============================================================================

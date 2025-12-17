@@ -61,6 +61,18 @@ export interface QueryAccountStorageResponse {
   subscription: SubscriptionInfo | undefined;
 }
 
+/** QueryAccountKeyRequest is request type for the Query/AccountKey RPC method. */
+export interface QueryAccountKeyRequest {
+  /** address is the account address to query the encrypted key for. */
+  address: string;
+}
+
+/** QueryAccountKeyResponse is response type for the Query/AccountKey RPC method. */
+export interface QueryAccountKeyResponse {
+  /** encrypted_account_key is the Base64 encoded encrypted symmetric key. */
+  encryptedAccountKey: string;
+}
+
 /** QueryFileRequest is request type for the Query/File RPC method. */
 export interface QueryFileRequest {
   /** merkle_root is the Merkle root hash of the file to query. */
@@ -673,6 +685,124 @@ export const QueryAccountStorageResponse: MessageFns<QueryAccountStorageResponse
     message.subscription = (object.subscription !== undefined && object.subscription !== null)
       ? SubscriptionInfo.fromPartial(object.subscription)
       : undefined;
+    return message;
+  },
+};
+
+function createBaseQueryAccountKeyRequest(): QueryAccountKeyRequest {
+  return { address: "" };
+}
+
+export const QueryAccountKeyRequest: MessageFns<QueryAccountKeyRequest> = {
+  encode(message: QueryAccountKeyRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.address !== "") {
+      writer.uint32(10).string(message.address);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): QueryAccountKeyRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseQueryAccountKeyRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.address = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): QueryAccountKeyRequest {
+    return { address: isSet(object.address) ? globalThis.String(object.address) : "" };
+  },
+
+  toJSON(message: QueryAccountKeyRequest): unknown {
+    const obj: any = {};
+    if (message.address !== "") {
+      obj.address = message.address;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<QueryAccountKeyRequest>, I>>(base?: I): QueryAccountKeyRequest {
+    return QueryAccountKeyRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<QueryAccountKeyRequest>, I>>(object: I): QueryAccountKeyRequest {
+    const message = createBaseQueryAccountKeyRequest();
+    message.address = object.address ?? "";
+    return message;
+  },
+};
+
+function createBaseQueryAccountKeyResponse(): QueryAccountKeyResponse {
+  return { encryptedAccountKey: "" };
+}
+
+export const QueryAccountKeyResponse: MessageFns<QueryAccountKeyResponse> = {
+  encode(message: QueryAccountKeyResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.encryptedAccountKey !== "") {
+      writer.uint32(10).string(message.encryptedAccountKey);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): QueryAccountKeyResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseQueryAccountKeyResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.encryptedAccountKey = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): QueryAccountKeyResponse {
+    return {
+      encryptedAccountKey: isSet(object.encryptedAccountKey) ? globalThis.String(object.encryptedAccountKey) : "",
+    };
+  },
+
+  toJSON(message: QueryAccountKeyResponse): unknown {
+    const obj: any = {};
+    if (message.encryptedAccountKey !== "") {
+      obj.encryptedAccountKey = message.encryptedAccountKey;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<QueryAccountKeyResponse>, I>>(base?: I): QueryAccountKeyResponse {
+    return QueryAccountKeyResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<QueryAccountKeyResponse>, I>>(object: I): QueryAccountKeyResponse {
+    const message = createBaseQueryAccountKeyResponse();
+    message.encryptedAccountKey = object.encryptedAccountKey ?? "";
     return message;
   },
 };
@@ -2553,6 +2683,8 @@ export interface Query {
   Params(request: QueryParamsRequest): Promise<QueryParamsResponse>;
   /** AccountStorage queries storage information for an account. */
   AccountStorage(request: QueryAccountStorageRequest): Promise<QueryAccountStorageResponse>;
+  /** AccountKey returns the encrypted symmetric key for an address. */
+  AccountKey(request: QueryAccountKeyRequest): Promise<QueryAccountKeyResponse>;
   /** File queries file metadata by Merkle root hash. */
   File(request: QueryFileRequest): Promise<QueryFileResponse>;
   /** FilesByProvider queries all files stored by a provider. */
@@ -2600,6 +2732,7 @@ export class QueryClientImpl implements Query {
     this.rpc = rpc;
     this.Params = this.Params.bind(this);
     this.AccountStorage = this.AccountStorage.bind(this);
+    this.AccountKey = this.AccountKey.bind(this);
     this.File = this.File.bind(this);
     this.FilesByProvider = this.FilesByProvider.bind(this);
     this.IndexerRange = this.IndexerRange.bind(this);
@@ -2624,6 +2757,12 @@ export class QueryClientImpl implements Query {
     const data = QueryAccountStorageRequest.encode(request).finish();
     const promise = this.rpc.request(this.service, "AccountStorage", data);
     return promise.then((data) => QueryAccountStorageResponse.decode(new BinaryReader(data)));
+  }
+
+  AccountKey(request: QueryAccountKeyRequest): Promise<QueryAccountKeyResponse> {
+    const data = QueryAccountKeyRequest.encode(request).finish();
+    const promise = this.rpc.request(this.service, "AccountKey", data);
+    return promise.then((data) => QueryAccountKeyResponse.decode(new BinaryReader(data)));
   }
 
   File(request: QueryFileRequest): Promise<QueryFileResponse> {
