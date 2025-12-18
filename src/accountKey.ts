@@ -63,9 +63,17 @@ export async function getAccountKey(walletAddress: string): Promise<Uint8Array> 
     try {
         const encryptedKeyBytes = Uint8Array.from(atob(encryptedAccountKeyBase64), c => c.charCodeAt(0));
         console.log('Encrypted key (binary) length:', encryptedKeyBytes.length, 'bytes');
-        console.log('Expected format: [12-byte IV][32-byte key][16-byte tag] = 60 bytes');
-        console.log('First 12 bytes (IV):', Array.from(encryptedKeyBytes.slice(0, 12)).map(b => b.toString(16).padStart(2, '0')).join(' '));
-        console.log('Key format check:', encryptedKeyBytes.length >= 28 ? '✓ Valid length' : '✗ Too short');
+        console.log('Old format: [12-byte IV][32-byte key][16-byte tag] = 60 bytes');
+        console.log('New format: [32-byte nonce][12-byte IV][32-byte key][16-byte tag] = 92 bytes minimum');
+        if (encryptedKeyBytes.length === 60) {
+            console.log('Format detected: OLD (no nonce) - will need to regenerate');
+            console.log('First 12 bytes (IV in old format):', Array.from(encryptedKeyBytes.slice(0, 12)).map(b => b.toString(16).padStart(2, '0')).join(' '));
+        } else if (encryptedKeyBytes.length >= 92) {
+            console.log('Format detected: NEW (with nonce)');
+            console.log('First 32 bytes (nonce):', Array.from(encryptedKeyBytes.slice(0, 32)).map(b => b.toString(16).padStart(2, '0')).join(' '));
+        } else {
+            console.log('Format detected: UNKNOWN - invalid length');
+        }
     } catch (e) {
         console.error('Error decoding base64 key:', e);
     }
@@ -75,9 +83,18 @@ export async function getAccountKey(walletAddress: string): Promise<Uint8Array> 
         console.log('Decrypting account key, encrypted key length:', encryptedAccountKeyBase64.length);
         const encryptedKeyBytes = Uint8Array.from(atob(encryptedAccountKeyBase64), c => c.charCodeAt(0));
         console.log('Encrypted key bytes length:', encryptedKeyBytes.length);
+        console.log('Expected format: [32-byte nonce][12-byte IV][encrypted key + 16-byte tag] = minimum 60 bytes');
         
-        if (encryptedKeyBytes.length < 12 + 16) {
-            throw new Error(`Invalid encrypted key format: expected at least 28 bytes (12 IV + 16 tag), got ${encryptedKeyBytes.length} bytes`);
+        // Check if the key is in the new format (with nonce)
+        // Old format: [12-byte IV][32-byte key][16-byte tag] = 60 bytes
+        // New format: [32-byte nonce][12-byte IV][32-byte key][16-byte tag] = 92 bytes minimum
+        // So if it's exactly 60 bytes or less, it's the old format
+        if (encryptedKeyBytes.length <= 60) {
+            throw new Error(
+                `Account key is encrypted with the old format (no nonce). ` +
+                `The encrypted key is ${encryptedKeyBytes.length} bytes (old format), but the new format requires at least 92 bytes (32 nonce + 12 IV + 32 key + 16 tag). ` +
+                `Please regenerate your account key using the "Generate Asymmetric Key" button to use the new encryption format.`
+            );
         }
         
         const accountKey = await decryptFileKeyWithECIES(encryptedKeyBytes, walletAddress);
@@ -92,8 +109,16 @@ export async function getAccountKey(walletAddress: string): Promise<Uint8Array> 
         return accountKey;
     } catch (error) {
         console.error('Error decrypting account key:', error);
+        if (error instanceof Error && error.message.includes('old format')) {
+            // Re-throw the user-friendly error about old format
+            throw error;
+        }
         if (error instanceof DOMException) {
-            throw new Error(`Cryptographic operation failed: ${error.message}. This may indicate the encrypted key format from blockchain doesn't match the expected format.`);
+            throw new Error(
+                `Decryption failed: ${error.message}. ` +
+                `This may indicate the account key was encrypted with the old format (no nonce). ` +
+                `Please regenerate your account key using the "Generate Asymmetric Key" button.`
+            );
         }
         throw error;
     }

@@ -984,31 +984,35 @@ export namespace Dashboard {
         try {
             const hasKey = await hasAccountKey(walletAddress);
             
+            // Always show the "Generate Asymmetric Key" button
+            let keyInfoHtml = '';
             if (hasKey) {
-                // Key exists - display the encrypted key
+                // Key exists - display the encrypted key alongside the button
                 try {
                     const encryptedKey = await getEncryptedAccountKey(walletAddress);
                     const formattedKey = formatEncryptionKey(encryptedKey);
                     
-                    $keyStatus.html(`
-                        <span class="text-muted small" style="font-family: monospace;">Key: ${formattedKey}</span>
-                    `);
+                    keyInfoHtml = `<span class="text-muted small me-2" style="font-family: monospace;">Key: ${formattedKey}</span>`;
                 } catch (error) {
                     console.error('Error fetching encrypted key for display:', error);
-                    $keyStatus.html('<span class="text-muted small">Key: Error loading</span>');
+                    keyInfoHtml = '<span class="text-muted small me-2">Key: Error loading</span>';
                 }
-            } else {
-                // No key - show "Generate Symmetric Key" button
-                $keyStatus.html(`
-                    <button id="generateKeyBtn" class="btn btn-sm btn-outline-primary">
-                        Generate Symmetric Key
-                    </button>
-                `);
             }
+            
+            $keyStatus.html(`
+                ${keyInfoHtml}
+                <button id="generateKeyBtn" class="btn btn-sm btn-outline-primary">
+                    Generate Asymmetric Key
+                </button>
+            `);
         } catch (error) {
             console.error('Error checking account key status:', error);
-            // On error, don't show anything (or show error state)
-            $keyStatus.html('<span class="text-muted small text-danger">Error checking key</span>');
+            // On error, still show the button
+            $keyStatus.html(`
+                <button id="generateKeyBtn" class="btn btn-sm btn-outline-primary">
+                    Generate Asymmetric Key
+                </button>
+            `);
         }
     }
 
