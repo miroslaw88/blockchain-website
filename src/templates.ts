@@ -644,6 +644,18 @@ export function getShareFileModalTemplate(fileName: string): string {
                         <div class="alert alert-info mb-3">
                             <strong>${fileName}</strong>
                         </div>
+                        
+                        <!-- Currently Shared With Section -->
+                        <div class="mb-3">
+                            <label class="form-label">Currently Shared With</label>
+                            <div id="sharedWithList" class="border rounded p-2" style="height: 124.8px; overflow-y: auto; background-color: #f8f9fa;">
+                                <div class="text-muted small text-center py-2">
+                                    <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                                    Loading...
+                                </div>
+                            </div>
+                        </div>
+                        
                         <form id="shareFileForm">
                             <div class="mb-3">
                                 <label for="shareAddress" class="form-label">Wallet Address</label>

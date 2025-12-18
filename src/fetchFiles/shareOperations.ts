@@ -5,6 +5,8 @@ import { getShareFileModalTemplate } from '../templates';
 import { showToast } from './utils';
 import { encryptFileKeyWithECIES } from '../osd-blockchain-sdk';
 import { getAccountKey, hasAccountKey } from '../accountKey';
+import { Dashboard } from '../dashboard';
+import { fetchWithTimeout } from './utils';
 
 // Show share file modal dialog
 // Note: encryptedFileKey parameter kept for backwards compatibility but not used anymore
@@ -30,7 +32,7 @@ export function showShareFileModal(merkleRoot: string, fileName: string, walletA
     modal.show();
     
     // Set default expiration date (30 days from now) and focus on input when modal is shown
-    $(modalElement).on('shown.bs.modal', () => {
+    $(modalElement).on('shown.bs.modal', async () => {
         // Set default expiration to 30 days from now
         const defaultDate = new Date();
         defaultDate.setDate(defaultDate.getDate() + 30);
@@ -45,6 +47,9 @@ export function showShareFileModal(merkleRoot: string, fileName: string, walletA
         
         $('#shareExpiresAt').val(defaultValue);
         $('#shareAddress').focus();
+        
+        // Fetch and display current share info
+        await fetchAndDisplayShareInfo(merkleRoot, walletAddress);
     });
     
     // Handle confirm button click
@@ -175,6 +180,9 @@ async function handleShareFileSubmit(merkleRoot: string, fileName: string, walle
             throw new Error(`Failed to share with all indexers. ${result.failedIndexers.map(f => f.error).join('; ')}`);
         }
         
+        // Refresh share info after successful share
+        await fetchAndDisplayShareInfo(merkleRoot, walletAddress);
+        
         // Close modal after a brief delay
         setTimeout(() => {
             modal.hide();
@@ -196,6 +204,203 @@ async function handleShareFileSubmit(merkleRoot: string, fileName: string, walle
         $cancelBtn.prop('disabled', false);
         $spinner.addClass('d-none');
         $btnText.text('Share File');
+    }
+}
+
+// Fetch and display current share info for a file
+async function fetchAndDisplayShareInfo(merkleRoot: string, owner: string): Promise<void> {
+    const $sharedWithList = $('#sharedWithList');
+    
+    // Store merkleRoot and owner in data attributes for revoke handler
+    $sharedWithList.attr('data-merkle-root', merkleRoot);
+    $sharedWithList.attr('data-owner', owner);
+    
+    try {
+        // Get a random active indexer
+        await Dashboard.waitForIndexer();
+        const indexer = Dashboard.getRandomIndexer();
+        
+        if (!indexer) {
+            $sharedWithList.html('<div class="text-muted small text-center py-2">No indexers available</div>');
+            return;
+        }
+        
+        const indexerAddress = indexer.indexer_address;
+        
+        // Determine protocol (http or https) based on address
+        const protocol = indexerAddress.includes('localhost') || 
+                       /^\d+\.\d+\.\d+\.\d+/.test(indexerAddress) ||
+                       indexerAddress.startsWith('127.0.0.1')
+            ? 'http'
+            : 'https';
+        
+        // Construct the URL
+        const baseUrl = indexerAddress.startsWith('http://') || indexerAddress.startsWith('https://')
+            ? indexerAddress
+            : `${protocol}://${indexerAddress}`;
+        
+        const url = `${baseUrl}/api/indexer/v1/files/${merkleRoot}/share?owner=${encodeURIComponent(owner)}`;
+        
+        // Fetch share info
+        const response = await fetchWithTimeout(url, 10000);
+        
+        if (!response.ok) {
+            if (response.status === 404) {
+                // File is not shared with anyone
+                $sharedWithList.html('<div class="text-muted small text-center py-2">This file is not currently shared with anyone</div>');
+                return;
+            }
+            throw new Error(`Failed to fetch share info: ${response.status} ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        const sharedWith: string[] = data.shared_with || [];
+        
+        // Display shared accounts with Remove buttons
+        if (sharedWith.length === 0) {
+            $sharedWithList.html('<div class="text-muted small text-center py-2">This file is not currently shared with anyone</div>');
+        } else {
+            const accountsList = sharedWith.map((address: string) => {
+                const displayAddress = address.length > 30 ? `${address.substring(0, 30)}...` : address;
+                return `
+                    <div class="mb-1 p-2 bg-white rounded border d-flex justify-content-between align-items-center" style="font-family: monospace; font-size: 0.85rem;">
+                        <span class="flex-grow-1 text-truncate" title="${address}">${displayAddress}</span>
+                        <button class="btn btn-sm btn-outline-danger revoke-share-btn ms-2" data-account="${address}" title="Remove access">
+                            Remove
+                        </button>
+                    </div>
+                `;
+            }).join('');
+            $sharedWithList.html(accountsList);
+            
+            // Attach event handlers for revoke buttons
+            // Use closure to capture merkleRoot and owner
+            $sharedWithList.off('click', '.revoke-share-btn');
+            $sharedWithList.on('click', '.revoke-share-btn', (function(merkleRootValue: string, ownerValue: string) {
+                return async function(e: JQuery.Event) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const $button = $(this);
+                    const accountToRevoke = $button.attr('data-account');
+                    if (accountToRevoke) {
+                        await handleRevokeShare(merkleRootValue, ownerValue, accountToRevoke);
+                    }
+                };
+            })(merkleRoot, owner));
+        }
+    } catch (error) {
+        console.error('Error fetching share info:', error);
+        $sharedWithList.html('<div class="text-danger small text-center py-2">Error loading share information</div>');
+    }
+}
+
+// Handle revoking share access for a specific account
+async function handleRevokeShare(merkleRoot: string, owner: string, accountToRevoke: string): Promise<void> {
+    const $sharedWithList = $('#sharedWithList');
+    const $button = $(`.revoke-share-btn[data-account="${accountToRevoke}"]`);
+    
+    // Disable button and show loading state
+    const originalText = $button.text();
+    $button.prop('disabled', true);
+    $button.html('<span class="spinner-border spinner-border-sm" role="status"></span>');
+    
+    try {
+        // Get all active indexers
+        const activeIndexers = Dashboard.getAllActiveIndexers();
+        
+        if (activeIndexers.length === 0) {
+            throw new Error('No active indexers available. Please wait and try again.');
+        }
+        
+        // Prepare the payload
+        const payload = {
+            account_to_revoke: accountToRevoke
+        };
+        
+        // Send revoke request to all active indexers
+        const results = await Promise.allSettled(
+            activeIndexers.map(async (indexer) => {
+                const indexerAddress = indexer.indexer_address;
+                
+                // Determine protocol (http or https) based on address
+                const protocol = indexerAddress.includes('localhost') || 
+                               /^\d+\.\d+\.\d+\.\d+/.test(indexerAddress) ||
+                               indexerAddress.startsWith('127.0.0.1')
+                    ? 'http'
+                    : 'https';
+                
+                // Construct the URL
+                const baseUrl = indexerAddress.startsWith('http://') || indexerAddress.startsWith('https://')
+                    ? indexerAddress
+                    : `${protocol}://${indexerAddress}`;
+                
+                const url = `${baseUrl}/api/indexer/v1/files/${merkleRoot}/share/revoke?owner=${encodeURIComponent(owner)}`;
+                
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        body: JSON.stringify(payload)
+                        // Note: Not setting Content-Type header to avoid CORS preflight
+                    });
+                    
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error(`Indexer ${indexerAddress} returned ${response.status}: ${errorText}`);
+                    }
+                    
+                    return { indexer: indexerAddress, success: true };
+                } catch (error) {
+                    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                    throw { indexer: indexerAddress, error: errorMessage };
+                }
+            })
+        );
+        
+        // Process results
+        const successfulIndexers: string[] = [];
+        const failedIndexers: Array<{ indexer: string; error: string }> = [];
+        
+        results.forEach((result, index) => {
+            if (result.status === 'fulfilled') {
+                successfulIndexers.push(result.value.indexer);
+            } else {
+                const rejectionValue = result.reason;
+                if (rejectionValue && typeof rejectionValue === 'object' && 'indexer' in rejectionValue) {
+                    failedIndexers.push({
+                        indexer: rejectionValue.indexer,
+                        error: rejectionValue.error || 'Unknown error'
+                    });
+                } else {
+                    failedIndexers.push({
+                        indexer: activeIndexers[index]?.indexer_address || 'unknown',
+                        error: rejectionValue?.message || rejectionValue?.toString() || 'Unknown error'
+                    });
+                }
+            }
+        });
+        
+        if (failedIndexers.length === 0) {
+            // All indexers succeeded
+            showToast(`Access revoked successfully for ${accountToRevoke.substring(0, 12)}...`, 'success');
+            // Refresh the share info list
+            await fetchAndDisplayShareInfo(merkleRoot, owner);
+        } else if (successfulIndexers.length > 0) {
+            // Partially successful
+            showToast(`Access revoked on ${successfulIndexers.length} indexer(s), ${failedIndexers.length} failed`, 'info');
+            // Refresh the share info list anyway
+            await fetchAndDisplayShareInfo(merkleRoot, owner);
+        } else {
+            // All failed
+            throw new Error(`Failed to revoke access on all indexers. ${failedIndexers.map(f => f.error).join('; ')}`);
+        }
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Failed to revoke access';
+        console.error('Revoke share error:', error);
+        showToast(`Failed to revoke access: ${errorMessage}`, 'error');
+        
+        // Re-enable button
+        $button.prop('disabled', false);
+        $button.text(originalText);
     }
 }
 
