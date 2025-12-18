@@ -118,7 +118,14 @@ async function fetchSharedAccounts(walletAddress: string): Promise<void> {
         }
         
         const data = await response.json();
-        const accounts: string[] = data.accounts || [];
+        let accounts: string[] = data.accounts || [];
+        
+        // Add fake test account for testing
+        // This account will show a test file that is not properly shared
+        const fakeTestAccount = 'cosmos1testaccount123456789012345678901234567890';
+        if (!accounts.includes(fakeTestAccount)) {
+            accounts.push(fakeTestAccount);
+        }
         
         // Display accounts as folder icons
         displaySharedAccounts(accounts, walletAddress, indexerAddress, protocol);
@@ -230,7 +237,7 @@ async function fetchSharedFiles(accountAddress: string, requesterAddress: string
         const data = await response.json();
         
         // Parse entries array - new format: { "sharer_account": "...", "entries": [{ "file": {...}, "storage_providers": [...] }] }
-        const entries: Array<{
+        let entries: Array<{
             file: {
                 merkle_root: string;
                 owner: string;
@@ -240,6 +247,7 @@ async function fetchSharedFiles(accountAddress: string, requesterAddress: string
                 max_proofs: number;
                 metadata: string;
                 uploaded_at: number;
+                encrypted_file_key?: string;
             };
             storage_providers: Array<{
                 provider_id?: string;
@@ -247,6 +255,36 @@ async function fetchSharedFiles(accountAddress: string, requesterAddress: string
                 providerAddress?: string;
             }>;
         }> = data.entries || [];
+        
+        // Add fake test file for testing download of non-shared file
+        // Only add it if this is the fake test account
+        // This file is NOT shared with the requester, so download should fail
+        const fakeTestAccount = 'cosmos1testaccount123456789012345678901234567890';
+        if (accountAddress === fakeTestAccount) {
+            entries.push({
+            file: {
+                merkle_root: '67eceaa7903feaac0d7d03c186e57540dd12a17c0406d4235a5a02878c16298d',
+                owner: accountAddress,
+                path: '/',
+                size_bytes: 42939,
+                expiration_time: 0,
+                max_proofs: 3,
+                metadata: JSON.stringify({
+                    name: 'ad073ac34cc417d17b0a4dc9a46253b944e979298d9c47026d32b22db1d8b000',
+                    original_name: 'Test File (Not Shared).png',
+                    content_type: 'image/png',
+                    original_file_hash: 'd54ede6906422c4d531f1dd9813b93feddd9c68a74ce7479495c55c85d034e3e',
+                    path: ''
+                }),
+                uploaded_at: Math.floor(Date.now() / 1000),
+                encrypted_file_key: '66REQ2uHNrRZKEu2uGkWyKn9pUxGulyLp0RDym92OdIpMAHSsOitxr4EJkZ732XqSSiG++ZMQv57uSBi' // Empty key - file is not shared
+            },
+            storage_providers: [{
+                provider_id: 'provider_64e279c64ec14220',
+                provider_address: 'storage.datavault.space'
+            }]
+            });
+        }
         
         // Build breadcrumbs
         const breadcrumbs = buildSharedBreadcrumbs(accountAddress, '/');
