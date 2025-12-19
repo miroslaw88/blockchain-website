@@ -158,6 +158,15 @@ export function getFolderThumbnailTemplate(
                     <p class="text-muted small mb-1">Folder</p>
                     <div class="mt-2 d-flex gap-2 justify-content-center align-items-center">
                         <span class="badge bg-info d-flex align-items-center" style="height: 32px; padding: 0.25rem 0.5rem;">Directory</span>
+                        <button class="btn btn-sm btn-info share-folder-btn" data-folder-path="${folderPath}" data-folder-name="${folderName}" title="Share Folder">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="18" cy="5" r="3"></circle>
+                                <circle cx="6" cy="12" r="3"></circle>
+                                <circle cx="18" cy="19" r="3"></circle>
+                                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+                                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+                            </svg>
+                        </button>
                         <button class="btn btn-sm btn-danger delete-folder-btn" data-folder-path="${folderPath}" data-folder-name="${folderName}" title="Delete Folder">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <polyline points="3 6 5 6 21 6"></polyline>
@@ -619,30 +628,42 @@ export function getDeleteFolderModalTemplate(folderName: string): string {
 }
 
 /**
- * Share File Modal Template
+ * Generic Share Resource Modal Template
+ * Can be used for both files and folders
+ * @param resourceType - 'file' or 'folder'
+ * @param resourceName - Name of the file or folder
  */
-export function getShareFileModalTemplate(fileName: string): string {
-    return `
-        <div class="modal fade" id="shareFileModal" tabindex="-1" aria-labelledby="shareFileModalLabel" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
-            <div class="modal-dialog modal-dialog-centered">
-                <div class="modal-content">
-                    <div class="modal-header bg-info text-white">
-                        <h5 class="modal-title" id="shareFileModalLabel">
+export function getShareResourceModalTemplate(resourceType: 'file' | 'folder', resourceName: string): string {
+    const resourceLabel = resourceType === 'file' ? 'File' : 'Folder';
+    const resourceIcon = resourceType === 'file' ? '' : `
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="me-2">
+                                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                            </svg>`;
+    const shareIcon = `
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="me-2">
                                 <circle cx="18" cy="5" r="3"></circle>
                                 <circle cx="6" cy="12" r="3"></circle>
                                 <circle cx="18" cy="19" r="3"></circle>
                                 <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
                                 <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
-                            </svg>
-                            Share File
+                            </svg>`;
+    
+    return `
+        <div class="modal fade" id="shareResourceModal" tabindex="-1" aria-labelledby="shareResourceModalLabel" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header bg-info text-white">
+                        <h5 class="modal-title" id="shareResourceModalLabel">
+                            ${shareIcon}
+                            Share ${resourceLabel}
                         </h5>
                         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
                     <div class="modal-body">
-                        <p class="mb-3">Share the following file with other users:</p>
+                        <p class="mb-3">Share the following ${resourceType} with other users:</p>
                         <div class="alert alert-info mb-3">
-                            <strong>${fileName}</strong>
+                            ${resourceIcon}
+                            <strong>${resourceName}</strong>
                         </div>
                         
                         <!-- Currently Shared With Section -->
@@ -656,7 +677,7 @@ export function getShareFileModalTemplate(fileName: string): string {
                             </div>
                         </div>
                         
-                        <form id="shareFileForm">
+                        <form id="shareResourceForm">
                             <div class="mb-3">
                                 <label for="shareAddress" class="form-label">Wallet Address</label>
                                 <input type="text" class="form-control" id="shareAddress" 
@@ -668,25 +689,33 @@ export function getShareFileModalTemplate(fileName: string): string {
                                 <input type="datetime-local" class="form-control" id="shareExpiresAt" required>
                                 <div class="form-text">Select the date and time when the share will expire</div>
                             </div>
-                            <div id="shareFileStatus" class="alert alert-info mt-3 d-none" role="alert">
+                            <div id="shareResourceStatus" class="alert alert-info mt-3 d-none" role="alert">
                                 <div class="d-flex align-items-center">
                                     <div class="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
-                                    <span id="shareFileStatusText">Sharing file...</span>
+                                    <span id="shareResourceStatusText">Sharing ${resourceType}...</span>
                                 </div>
                             </div>
                         </form>
                     </div>
                     <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" id="cancelShareFileBtn" data-bs-dismiss="modal">Cancel</button>
-                        <button type="button" class="btn btn-info" id="confirmShareFileBtn">
-                            <span id="shareFileBtnText">Share File</span>
-                            <span id="shareFileSpinner" class="spinner-border spinner-border-sm ms-2 d-none" role="status"></span>
+                        <button type="button" class="btn btn-secondary" id="cancelShareResourceBtn" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-info" id="confirmShareResourceBtn">
+                            <span id="shareResourceBtnText">Share ${resourceLabel}</span>
+                            <span id="shareResourceSpinner" class="spinner-border spinner-border-sm ms-2 d-none" role="status"></span>
                         </button>
                     </div>
                 </div>
             </div>
         </div>
     `;
+}
+
+/**
+ * Share File Modal Template (deprecated - use getShareResourceModalTemplate instead)
+ * Kept for backward compatibility
+ */
+export function getShareFileModalTemplate(fileName: string): string {
+    return getShareResourceModalTemplate('file', fileName);
 }
 
 /**

@@ -14,7 +14,7 @@ import {
 } from '../templates';
 import { fetchWithTimeout, getFileIcon, getFolderIcon, formatFileSize, buildBreadcrumbs, showToast } from './utils';
 import { showDeleteFileModal, showDeleteFolderModal } from './deleteOperations';
-import { showShareFileModal } from './shareOperations';
+import { showShareFileModal } from './shareFileOperations';
 import { showSharedAccountsModal } from './sharedAccounts';
 import { showCreateFolderModal } from './createFolder';
 
@@ -366,6 +366,25 @@ function attachEventHandlers(walletAddress: string, currentPath: string): void {
         
         // Show delete confirmation modal
         showDeleteFileModal(merkleRoot, fileName, walletAddress, currentPath);
+    });
+    
+    // Add click handler for share folder buttons
+    $contentArea.off('click', '.share-folder-btn');
+    $contentArea.on('click', '.share-folder-btn', async function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const $button = $(this);
+        const folderPath = $button.attr('data-folder-path');
+        const folderName = $button.attr('data-folder-name') || 'folder';
+        
+        if (!folderPath) {
+            showToast('Folder path not found', 'error');
+            return;
+        }
+        
+        // Show share folder modal
+        const { showShareFolderModal } = await import('./shareFolderOperations');
+        showShareFolderModal(folderPath, folderName, walletAddress);
     });
     
     // Add click handler for delete folder buttons

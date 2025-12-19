@@ -474,7 +474,7 @@ export async function generateECIESKeypair(walletAddress: string): Promise<{ pri
  * @param address - Account address (bech32 format)
  * @returns Public key as Uint8Array (uncompressed secp256k1 format, 65 bytes starting with 04)
  */
-async function getAccountPublicKey(address: string): Promise<Uint8Array> {
+export async function getAccountPublicKey(address: string): Promise<Uint8Array> {
     // Check cache first
     if (publicKeyCache[address]) {
         return publicKeyCache[address];
