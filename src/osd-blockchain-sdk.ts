@@ -716,9 +716,9 @@ export async function decryptFileKeyWithECIES(
             console.error('Derived byte:', publicKeyFromPrivate[firstMismatchIndex]?.toString(16));
             console.error('Blockchain byte:', blockchainPublicKey[firstMismatchIndex]?.toString(16));
             throw new Error(
-                `ECIES private key does not correspond to blockchain public key. ` +
-                `The public key on the blockchain was likely uploaded using a different signature message. ` +
-                `Please delete and re-upload your ECIES public key.`
+                `Your ECIES public key on the blockchain was uploaded using a different signature method. ` +
+                `To fix this, please: 1) Click "Delete Public Key" button, then 2) Click "Upload ECIES Public Key" button to re-upload with the correct key. ` +
+                `This will allow you to decrypt files that are shared with you.`
             );
         }
         
