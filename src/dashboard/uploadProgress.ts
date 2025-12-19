@@ -5,7 +5,7 @@ export function showUploadProgressToast(file: File, uploadId: string, uploadPath
     const $container = $('#toastContainer');
     if ($container.length === 0) {
         // Create container if it doesn't exist
-        $('body').append('<div class="toast-container position-fixed top-0 end-0 p-3" id="toastContainer" style="z-index: 11;"></div>');
+        $('body').append('<div class="toast-container position-fixed bottom-0 end-0 p-3" id="toastContainer" style="z-index: 9999;"></div>');
     }
     
     const fileSize = formatFileSize(file.size);

@@ -7,7 +7,7 @@ export function showToast(message: string, type: 'error' | 'success' | 'info' = 
     const $container = $('#toastContainer');
     if ($container.length === 0) {
         // Create container if it doesn't exist
-        $('body').append('<div class="toast-container" id="toastContainer"></div>');
+        $('body').append('<div class="toast-container position-fixed bottom-0 end-0 p-3" id="toastContainer" style="z-index: 9999;"></div>');
     }
     
     const toastId = `toast-${Date.now()}`;

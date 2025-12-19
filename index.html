@@ -183,7 +183,7 @@
         /* Toast container */
         .toast-container {
             position: fixed;
-            top: 20px;
+            bottom: 20px;
             right: 20px;
             z-index: 9999;
         }
@@ -224,7 +224,7 @@
 </head>
 <body>
     <!-- Toast container for notifications -->
-    <div class="toast-container" id="toastContainer"></div>
+    <div class="toast-container position-fixed bottom-0 end-0 p-3" id="toastContainer" style="z-index: 9999;"></div>
     <!-- Wallet Connection View -->
     <div id="walletConnectionView">
         <div class="wallet-card">
