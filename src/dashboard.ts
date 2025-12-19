@@ -5,8 +5,7 @@ import { buyStorage } from './buyStorage';
 import { postFile } from './postFile';
 import { fetchStorageStats } from './fetchStorageStats';
 import { extendStorageDuration } from './extendStorage';
-import { getExtendStorageModalTemplate } from './templates';
-import { getBuyStorageModalTemplate } from './templates';
+import { getExtendStorageModalTemplate, getBuyStorageModalTemplate, getECIESKeySetupModalTemplate } from './templates';
 import { submitChunkMetadata } from './submitChunkMetadata';
 import { encryptFile, encryptFileKeyWithECIES, calculateMerkleRoot, hashFilename, genAesBundle } from './osd-blockchain-sdk';
 import { getAccountKey, hasAccountKey, getEncryptedAccountKey, clearAccountKeyCache } from './accountKey';
@@ -1025,8 +1024,140 @@ export namespace Dashboard {
         }
     }
 
+    // Flag to prevent concurrent uploads
+    let isUploadingECIESKey = false;
+
+    // Check ECIES key and show setup modal if needed
+    async function checkECIESKeyAndShowModal(walletAddress: string): Promise<void> {
+        try {
+            const { hasAccountKey } = await import('./accountKey');
+            const hasKey = await hasAccountKey(walletAddress);
+            
+            if (!hasKey) {
+                // Key doesn't exist, show setup modal
+                showECIESKeySetupModal(walletAddress);
+            }
+        } catch (error) {
+            console.error('Error checking ECIES key:', error);
+            // On error, still show the modal to be safe
+            showECIESKeySetupModal(walletAddress);
+        }
+    }
+
+    // Show ECIES key setup modal (non-dismissible)
+    function showECIESKeySetupModal(walletAddress: string): void {
+        // Check if modal already exists and is showing
+        let modalElement = document.getElementById('eciesKeySetupModal');
+        
+        if (modalElement) {
+            // Check if modal is already visible
+            const modal = (window as any).bootstrap.Modal.getInstance(modalElement);
+            if (modal && modal._isShown) {
+                // Modal is already showing, don't show again
+                return;
+            }
+        }
+        
+        if (!modalElement) {
+            // Create modal from template
+            const modalHtml = getECIESKeySetupModalTemplate();
+            $('body').append(modalHtml);
+            modalElement = document.getElementById('eciesKeySetupModal');
+        }
+
+        if (!modalElement) {
+            console.error('Failed to create ECIES key setup modal');
+            return;
+        }
+
+        // Set up button handler
+        $('#generateECIESKeyBtn').off('click').on('click', async () => {
+            await handleECIESKeyGenerationFromModal(walletAddress);
+        });
+
+        // Show modal (non-dismissible: backdrop static, keyboard disabled)
+        const modal = new (window as any).bootstrap.Modal(modalElement, {
+            backdrop: 'static',
+            keyboard: false
+        });
+        modal.show();
+    }
+
+    // Handle ECIES key generation from modal
+    async function handleECIESKeyGenerationFromModal(walletAddress: string): Promise<void> {
+        const $button = $('#generateECIESKeyBtn');
+        const $buttonText = $('#generateECIESKeyBtnText');
+        const $spinner = $('#generateECIESKeySpinner');
+        const $status = $('#eciesKeySetupStatus');
+        const $statusText = $('#eciesKeySetupStatusText');
+
+        // Prevent concurrent uploads
+        if (isUploadingECIESKey) {
+            return;
+        }
+
+        // Disable button and show loading state
+        isUploadingECIESKey = true;
+        $button.prop('disabled', true);
+        $buttonText.text('Generating...');
+        $spinner.removeClass('d-none');
+        $status.removeClass('d-none');
+        $statusText.text('Generating and uploading ECIES key...');
+
+        try {
+            const { uploadECIESPublicKey } = await import('./generateAccountKey');
+            const result = await uploadECIESPublicKey();
+
+            if (result.success) {
+                $statusText.text('ECIES key generated and uploaded successfully!');
+                $status.removeClass('alert-info').addClass('alert-success');
+                
+                // Wait a moment to show success message, then close modal
+                setTimeout(async () => {
+                    const modalElement = document.getElementById('eciesKeySetupModal');
+                    if (modalElement) {
+                        const modal = (window as any).bootstrap.Modal.getInstance(modalElement);
+                        if (modal) {
+                            modal.hide();
+                            // Remove modal from DOM after hiding
+                            $(modalElement).on('hidden.bs.modal', () => {
+                                $(modalElement).remove();
+                            });
+                        }
+                    }
+                    
+                    // Refresh the key status display
+                    await checkAndUpdateAccountKeyStatus(walletAddress);
+                }, 1500);
+            } else {
+                $statusText.text(`Error: ${result.error || 'Unknown error'}`);
+                $status.removeClass('alert-info').addClass('alert-danger');
+                // Re-enable button
+                $button.prop('disabled', false);
+                $buttonText.text('Generate ECIES Key');
+                $spinner.addClass('d-none');
+            }
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            $statusText.text(`Error: ${errorMessage}`);
+            $status.removeClass('alert-info').addClass('alert-danger');
+            // Re-enable button
+            $button.prop('disabled', false);
+            $buttonText.text('Generate ECIES Key');
+            $spinner.addClass('d-none');
+        } finally {
+            isUploadingECIESKey = false;
+        }
+    }
+
     // Handle generate account key button click
     async function handleGenerateAccountKey(): Promise<void> {
+        // Prevent concurrent uploads
+        if (isUploadingECIESKey) {
+            console.log('ECIES key upload already in progress, ignoring click');
+            return;
+        }
+
         const $button = $('#generateKeyBtn');
         const walletAddress = sessionStorage.getItem('walletAddress');
         
@@ -1035,7 +1166,22 @@ export namespace Dashboard {
             return;
         }
 
-        // Disable button and show loading state
+        // Check if key already exists
+        try {
+            const { hasAccountKey } = await import('./accountKey');
+            const hasKey = await hasAccountKey(walletAddress);
+            if (hasKey) {
+                showToast('ECIES public key already exists for this account', 'info');
+                // Refresh the display
+                await checkAndUpdateAccountKeyStatus(walletAddress);
+                return;
+            }
+        } catch (error) {
+            console.warn('Could not check if key exists, proceeding with upload:', error);
+        }
+
+        // Set flag and disable button
+        isUploadingECIESKey = true;
         $button.prop('disabled', true);
         const originalText = $button.text();
         $button.html(`
@@ -1053,11 +1199,7 @@ export namespace Dashboard {
                     'success'
                 );
 
-                // Clear the public key cache so it gets refreshed
-                // Note: We need to clear the cache in osd-blockchain-sdk.ts
-                // For now, we'll just refresh the display
-
-                // Refresh the key status display
+                // Refresh the key status display (this will update the button state)
                 await checkAndUpdateAccountKeyStatus(walletAddress);
             } else {
                 showToast(`Failed to upload ECIES public key: ${result.error || 'Unknown error'}`, 'error');
@@ -1071,6 +1213,9 @@ export namespace Dashboard {
             // Re-enable button
             $button.prop('disabled', false);
             $button.text(originalText);
+        } finally {
+            // Always clear the flag
+            isUploadingECIESKey = false;
         }
     }
 
@@ -1080,6 +1225,8 @@ export namespace Dashboard {
         $('#disconnectBtn').on('click', disconnectWallet);
 
         // Generate account key button (delegated event handler for dynamically added button)
+        // Remove any existing handlers first to prevent duplicates
+        $(document).off('click', '#generateKeyBtn', handleGenerateAccountKey);
         $(document).on('click', '#generateKeyBtn', handleGenerateAccountKey);
 
         // Initialize drag and drop
@@ -1126,6 +1273,9 @@ export namespace Dashboard {
         const walletAddress = sessionStorage.getItem('walletAddress');
         if (walletAddress) {
             updateWalletAddressDisplay(walletAddress);
+            
+            // Check if ECIES key exists, show setup modal if not
+            checkECIESKeyAndShowModal(walletAddress);
             
             // Check account key status and update header
             checkAndUpdateAccountKeyStatus(walletAddress);

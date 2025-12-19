@@ -732,3 +732,48 @@ export function getSharedAccountsModalTemplate(): string {
     `;
 }
 
+/**
+ * ECIES Key Setup Modal Template
+ * Non-dismissible modal shown when wallet is connected but ECIES key doesn't exist
+ */
+export function getECIESKeySetupModalTemplate(): string {
+    return `
+        <div class="modal fade" id="eciesKeySetupModal" tabindex="-1" aria-labelledby="eciesKeySetupModalLabel" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header bg-primary text-white">
+                        <h5 class="modal-title" id="eciesKeySetupModalLabel">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="me-2">
+                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                            </svg>
+                            ECIES Key Required
+                        </h5>
+                    </div>
+                    <div class="modal-body">
+                        <p class="mb-3">An ECIES (Elliptic Curve Integrated Encryption Scheme) key is required to encrypt and decrypt your files.</p>
+                        <p class="mb-3"><strong>What it's used for:</strong></p>
+                        <ul class="mb-3">
+                            <li>Encrypting your files before storage</li>
+                            <li>Sharing files securely with other users</li>
+                            <li>Decrypting files you own or that are shared with you</li>
+                        </ul>
+                        <div id="eciesKeySetupStatus" class="alert alert-info mt-3 d-none" role="alert">
+                            <div class="d-flex align-items-center">
+                                <div class="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
+                                <span id="eciesKeySetupStatusText">Generating and uploading ECIES key...</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-primary" id="generateECIESKeyBtn">
+                            <span id="generateECIESKeyBtnText">Generate ECIES Key</span>
+                            <span id="generateECIESKeySpinner" class="spinner-border spinner-border-sm ms-2 d-none" role="status"></span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+

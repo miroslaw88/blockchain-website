@@ -263,7 +263,7 @@ async function fetchSharedFiles(accountAddress: string, requesterAddress: string
         if (accountAddress === fakeTestAccount) {
             entries.push({
             file: {
-                merkle_root: '67eceaa7903feaac0d7d03c186e57540dd12a17c0406d4235a5a02878c16298d',
+                merkle_root: '4c52a2c985e0c97670be13f74a4881faec9344ee94050b6f84f1a21939d4beb4',
                 owner: accountAddress,
                 path: '/',
                 size_bytes: 42939,
@@ -277,7 +277,7 @@ async function fetchSharedFiles(accountAddress: string, requesterAddress: string
                     path: ''
                 }),
                 uploaded_at: Math.floor(Date.now() / 1000),
-                encrypted_file_key: '66REQ2uHNrRZKEu2uGkWyKn9pUxGulyLp0RDym92OdIpMAHSsOitxr4EJkZ732XqSSiG++ZMQv57uSBi' // Empty key - file is not shared
+                encrypted_file_key: '04a18d8a0713f1b0213311bcde16edd2528c7dc478d963b83031eaa4f334de0f95f2423cb4f7b540436a8807360845b9e28ffc38ea264305b76e35aac6766310ed7f415410122e89097a00006600c20f0e09745a15f3a2ca5de83d295aeae8400c06e3feac0bf1a11216171560da288776|042442f3b554f9734aa9e13dd1d66691ce890712e1780539683a382919a5f6f24699b56ba5114d0e08a0e5f3f89776afd2f5a222cbc81c52fcd1b73d5c54ca265ab9bf1cf5039f72c1bdcfee85b066cabab80e94a9349dba8129f9400f3582a1b08eb6432e547b734b20bf87e74f87eb2ad066027911332dad096b7f889a672a48' // Empty key - file is not shared
             },
             storage_providers: [{
                 provider_id: 'provider_64e279c64ec14220',
