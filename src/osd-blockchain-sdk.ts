@@ -336,6 +336,16 @@ const eciesPrivateKeyCache: { [address: string]: string } = {};
 const storageSessionSignatureCache: { [address: string]: string } = {};
 
 /**
+ * Check if storage session signature exists in cache (without requesting a new one)
+ * 
+ * @param walletAddress - Wallet address (bech32 format)
+ * @returns true if signature is cached, false otherwise
+ */
+export function hasStorageSessionSignature(walletAddress: string): boolean {
+    return !!storageSessionSignatureCache[walletAddress];
+}
+
+/**
  * Get or request "Initiate Storage Session" signature
  * This signature is shared across the app for deriving ECIES keys
  * 

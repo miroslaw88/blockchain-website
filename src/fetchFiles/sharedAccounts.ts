@@ -263,7 +263,7 @@ async function fetchSharedFiles(accountAddress: string, requesterAddress: string
         if (accountAddress === fakeTestAccount) {
             entries.push({
             file: {
-                merkle_root: '4c52a2c985e0c97670be13f74a4881faec9344ee94050b6f84f1a21939d4beb4',
+                merkle_root: 'f8a47fcc99e096ba62e1b1f3fb3f0ca76262b72a0846f8d3096ebf0bf7926d28',
                 owner: accountAddress,
                 path: '/',
                 size_bytes: 42939,
@@ -277,7 +277,7 @@ async function fetchSharedFiles(accountAddress: string, requesterAddress: string
                     path: ''
                 }),
                 uploaded_at: Math.floor(Date.now() / 1000),
-                encrypted_file_key: '04a18d8a0713f1b0213311bcde16edd2528c7dc478d963b83031eaa4f334de0f95f2423cb4f7b540436a8807360845b9e28ffc38ea264305b76e35aac6766310ed7f415410122e89097a00006600c20f0e09745a15f3a2ca5de83d295aeae8400c06e3feac0bf1a11216171560da288776|042442f3b554f9734aa9e13dd1d66691ce890712e1780539683a382919a5f6f24699b56ba5114d0e08a0e5f3f89776afd2f5a222cbc81c52fcd1b73d5c54ca265ab9bf1cf5039f72c1bdcfee85b066cabab80e94a9349dba8129f9400f3582a1b08eb6432e547b734b20bf87e74f87eb2ad066027911332dad096b7f889a672a48' // Empty key - file is not shared
+                encrypted_file_key: '049049a3ce5f5e9964e958f9c9998f30a1374a06cac0741b64ce07725ed360cdeb561827031b3829cb6348c12f4d39eeff48ce65709b34068315122165028441e56c993d474f7ad52dd08f2955f10537c50af791b9e8ec27a7f4b533d07d78ec348f6ce16e30cb9fea517d574767b49ed4|04c216565ef46b477d58b32db750bb9a0ca29a00ad4e3e601a370d4e3833e635b3929b88153774898b1cd86b41499a1f97a09aa7f5b41fd274fd91c3d175544146e065dc078f7a586cd4a7528c6652cad2fad6d3688051ba5b451c45a1a1cd5d97662e5945b96bf55b57e81b699b5bc4536b3d259ae845bd3c383a1fc2d8e756b2' // Empty key - file is not shared
             },
             storage_providers: [{
                 provider_id: 'provider_64e279c64ec14220',
