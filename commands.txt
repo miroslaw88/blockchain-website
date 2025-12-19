@@ -17,8 +17,6 @@ cd /var/www/blockchain-website
 sudo chown -R blockchaindev:blockchaindev dist
 
 npm install
-npm run build
-
 
 # Or remove and recreate it
 sudo rm -rf dist
