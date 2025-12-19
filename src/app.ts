@@ -1,6 +1,6 @@
 // Main application entry point - single page app
 import { Wallet } from './wallet';
-import { Dashboard } from './dashboard';
+import { Dashboard } from './dashboard/index';
 
 // Show/hide views based on connection state
 function showWalletConnectionView() {

@@ -12,8 +12,13 @@ for prod:
 
 cd /var/www/blockchain-website
 
+
 # Change ownership of dist directory to your user
 sudo chown -R blockchaindev:blockchaindev dist
+
+npm install
+npm run build
+
 
 # Or remove and recreate it
 sudo rm -rf dist

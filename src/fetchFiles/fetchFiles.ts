@@ -1,7 +1,7 @@
 // Main file fetching functionality
 
 import { downloadFile } from '../downloadFile';
-import { Dashboard } from '../dashboard';
+import { Dashboard } from '../dashboard/index';
 import { formatDate } from '../utils';
 import {
     getFilesViewTemplate,

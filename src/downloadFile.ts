@@ -536,7 +536,7 @@ export async function downloadFile(fileMetadata: any, walletAddress: string, $bu
         }
         
         // Step 1: Query file information from indexer to get encrypted_file_key and storage providers
-        const { Dashboard } = await import('./dashboard');
+        const { Dashboard } = await import('./dashboard/index');
         const indexer = await Dashboard.waitForIndexer();
         
         const protocol = indexer.indexer_address.includes('localhost') || indexer.indexer_address.match(/^\d+\.\d+\.\d+\.\d+/) ? 'http' : 'https';

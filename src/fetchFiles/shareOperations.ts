@@ -5,7 +5,7 @@ import { getShareFileModalTemplate } from '../templates';
 import { showToast } from './utils';
 import { encryptFileKeyWithECIES } from '../osd-blockchain-sdk';
 import { hasAccountKey } from '../accountKey';
-import { Dashboard } from '../dashboard';
+import { Dashboard } from '../dashboard/index';
 import { fetchWithTimeout } from './utils';
 
 // Show share file modal dialog

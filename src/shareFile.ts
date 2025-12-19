@@ -1,6 +1,6 @@
 // Share file with other users via indexers
 
-import { Dashboard } from './dashboard';
+import { Dashboard } from './dashboard/index';
 import { showToast } from './fetchFiles';
 
 export interface ShareFileResult {
