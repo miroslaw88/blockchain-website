@@ -27,24 +27,24 @@ export async function uploadECIESPublicKey(): Promise<UploadECIESPublicKeyResult
         const accounts = await offlineSigner.getAccounts();
         const userAddress = accounts[0].address;
 
-        // Generate ECIES keypair locally
-        console.log('Generating ECIES keypair...');
-        const { privateKeyHex, publicKeyHex } = await generateECIESKeypair();
+        // Derive ECIES keypair deterministically from wallet
+        // Same wallet will always produce the same keypair
+        console.log('Deriving ECIES keypair from wallet signature...');
+        const { privateKeyHex, publicKeyHex } = await generateECIESKeypair(userAddress);
         
         // Debug: Log key details
-        console.log('Generated private key length (hex):', privateKeyHex.length);
-        console.log('Generated public key length (hex):', publicKeyHex.length);
-        console.log('Generated public key (first 20 chars):', publicKeyHex.substring(0, 20));
-        console.log('Generated public key (last 20 chars):', publicKeyHex.substring(publicKeyHex.length - 20));
+        console.log('Derived private key length (hex):', privateKeyHex.length);
+        console.log('Derived public key length (hex):', publicKeyHex.length);
+        console.log('Derived public key (first 20 chars):', publicKeyHex.substring(0, 20));
+        console.log('Derived public key (last 20 chars):', publicKeyHex.substring(publicKeyHex.length - 20));
         
         // Validate public key is not empty
         if (!publicKeyHex || publicKeyHex.length === 0) {
-            throw new Error('Generated ECIES public key is empty');
+            throw new Error('Derived ECIES public key is empty');
         }
         
-        // Store private key in localStorage for decryption (persists across sessions)
-        localStorage.setItem(`ecies_private_key_${userAddress}`, privateKeyHex);
-        console.log('ECIES private key stored in localStorage');
+        // Note: Private key is derived on-demand from wallet signature, no need to store it
+        console.log('ECIES keypair derived deterministically from wallet (no storage needed)');
 
         // Import required modules
         const { Registry } = await import('@cosmjs/proto-signing');
@@ -152,5 +152,115 @@ export async function uploadECIESPublicKey(): Promise<UploadECIESPublicKeyResult
 // Keep the old function name for backwards compatibility (but it now calls uploadECIESPublicKey)
 export async function generateAccountKey(): Promise<UploadECIESPublicKeyResult> {
     return uploadECIESPublicKey();
+}
+
+export interface DeleteECIESPublicKeyResult {
+    success: boolean;
+    transactionHash?: string;
+    error?: string;
+}
+
+/**
+ * Delete ECIES public key from blockchain
+ * 
+ * @returns Result object with success status and transaction hash
+ */
+export async function deleteECIESPublicKey(): Promise<DeleteECIESPublicKeyResult> {
+    try {
+        const keplr = getKeplr();
+        if (!keplr) {
+            throw new Error('Keplr wallet not installed');
+        }
+
+        // Ensure chain is enabled
+        await keplr.enable(CHAIN_ID);
+        const offlineSigner = keplr.getOfflineSigner(CHAIN_ID);
+        const accounts = await offlineSigner.getAccounts();
+        const userAddress = accounts[0].address;
+
+        // Import required modules
+        const { Registry } = await import('@cosmjs/proto-signing');
+        const { SigningStargateClient, defaultRegistryTypes } = await import('@cosmjs/stargate');
+        
+        // Try to import MsgDeleteKey
+        let MsgDeleteKey: any;
+        try {
+            const txModule = await import('./generated/osdblockchain/osdblockchain/v1/tx');
+            MsgDeleteKey = txModule.MsgDeleteKey;
+        } catch (error) {
+            console.warn('MsgDeleteKey not found in generated types, using generic message structure');
+            MsgDeleteKey = null;
+        }
+
+        // Register message type
+        const registryTypes: Array<[string, any]> = [...defaultRegistryTypes];
+        if (MsgDeleteKey) {
+            registryTypes.push(['/osdblockchain.osdblockchain.v1.MsgDeleteKey', MsgDeleteKey as any]);
+        }
+        const registry = new Registry(registryTypes);
+
+        // Connect to RPC
+        let rpcEndpoint = 'https://storage.datavault.space/rpc';
+        // Uncomment if running locally:
+        // rpcEndpoint = 'http://localhost:26667';
+
+        // Create client
+        const signingClient = await SigningStargateClient.connectWithSigner(
+            rpcEndpoint,
+            offlineSigner,
+            { registry }
+        );
+
+        // Create message
+        if (!MsgDeleteKey) {
+            throw new Error('MsgDeleteKey not found in generated types. Please regenerate protobuf types.');
+        }
+        
+        const msgValue = MsgDeleteKey.fromPartial({
+            owner: userAddress
+        });
+        
+        const msg = {
+            typeUrl: '/osdblockchain.osdblockchain.v1.MsgDeleteKey',
+            value: msgValue
+        };
+
+        // Log the payload before sending
+        console.log('=== ECIES Public Key Delete Payload ===');
+        console.log('Payload:', JSON.stringify({
+            typeUrl: msg.typeUrl,
+            value: {
+                owner: msgValue.owner
+            }
+        }, null, 2));
+
+        // Set fee
+        const fee = {
+            amount: [{ denom: 'stake', amount: '0' }],
+            gas: '200000'
+        };
+
+        // Sign and broadcast
+        console.log('Signing and broadcasting delete transaction...');
+        const result = await signingClient.signAndBroadcast(userAddress, [msg], fee, 'Delete ECIES Public Key');
+
+        if (result.code === 0) {
+            console.log('✅ ECIES public key deleted successfully!');
+            console.log('Transaction hash:', result.transactionHash);
+
+            return {
+                success: true,
+                transactionHash: result.transactionHash
+            };
+        } else {
+            throw new Error(`Transaction failed: ${result.rawLog}`);
+        }
+    } catch (error) {
+        console.error('❌ Error deleting ECIES public key:', error);
+        return {
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        };
+    }
 }
 

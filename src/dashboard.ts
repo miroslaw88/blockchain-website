@@ -115,6 +115,10 @@ export namespace Dashboard {
                 delete eciesKeyMaterialCache[key];
             });
             
+            // Clear ECIES private key cache from osd-blockchain-sdk
+            const { clearECIESPrivateKeyCache } = await import('./osd-blockchain-sdk');
+            clearECIESPrivateKeyCache();
+            
             // Clear all wallet session data
             sessionStorage.removeItem('walletConnected');
             sessionStorage.removeItem('walletAddress');
@@ -983,10 +987,11 @@ export namespace Dashboard {
         try {
             const hasKey = await hasAccountKey(walletAddress);
             
-            // Always show the "Upload ECIES Public Key" button
             let keyInfoHtml = '';
+            let buttonHtml = '';
+            
             if (hasKey) {
-                // Key exists - display the public key
+                // Key exists - display the public key and show Delete button
                 try {
                     const apiEndpoint = 'https://storage.datavault.space';
                     const response = await fetch(
@@ -1005,14 +1010,26 @@ export namespace Dashboard {
                     console.error('Error fetching ECIES public key for display:', error);
                     keyInfoHtml = '<span class="text-muted small me-2">Key: Error loading</span>';
                 }
+                
+                // Show Delete button when key exists
+                buttonHtml = `
+                    <button id="deleteKeyBtn" class="btn btn-sm btn-outline-danger me-2">
+                        Delete Public Key
+                    </button>
+                    <button id="generateKeyBtn" class="btn btn-sm btn-outline-primary">
+                        Upload ECIES Public Key
+                    </button>
+                `;
+            } else {
+                // No key - only show Upload button
+                buttonHtml = `
+                    <button id="generateKeyBtn" class="btn btn-sm btn-outline-primary">
+                        Upload ECIES Public Key
+                    </button>
+                `;
             }
             
-            $keyStatus.html(`
-                ${keyInfoHtml}
-                <button id="generateKeyBtn" class="btn btn-sm btn-outline-primary">
-                    Upload ECIES Public Key
-                </button>
-            `);
+            $keyStatus.html(`${keyInfoHtml}${buttonHtml}`);
         } catch (error) {
             console.error('Error checking account key status:', error);
             // On error, still show the button
@@ -1150,6 +1167,57 @@ export namespace Dashboard {
         }
     }
 
+    // Handle delete ECIES public key button click
+    async function handleDeleteAccountKey(): Promise<void> {
+        const $button = $('#deleteKeyBtn');
+        const walletAddress = sessionStorage.getItem('walletAddress');
+        
+        if (!walletAddress) {
+            showToast('Wallet address not found', 'error');
+            return;
+        }
+
+        // Confirm deletion
+        const confirmed = confirm('Are you sure you want to delete your ECIES public key? This will prevent others from sharing files with you until you upload a new key.');
+        if (!confirmed) {
+            return;
+        }
+
+        // Disable button and show loading state
+        $button.prop('disabled', true);
+        const originalText = $button.text();
+        $button.html(`
+            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+            Deleting...
+        `);
+
+        try {
+            const { deleteECIESPublicKey } = await import('./generateAccountKey');
+            const result = await deleteECIESPublicKey();
+
+            if (result.success) {
+                showToast(
+                    `ECIES public key deleted successfully! Tx: ${result.transactionHash?.substring(0, 8)}...`,
+                    'success'
+                );
+
+                // Refresh the key status display (this will update the button state)
+                await checkAndUpdateAccountKeyStatus(walletAddress);
+            } else {
+                showToast(`Failed to delete ECIES public key: ${result.error || 'Unknown error'}`, 'error');
+                // Re-enable button
+                $button.prop('disabled', false);
+                $button.text(originalText);
+            }
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            showToast(`Error deleting ECIES public key: ${errorMessage}`, 'error');
+            // Re-enable button
+            $button.prop('disabled', false);
+            $button.text(originalText);
+        }
+    }
+
     // Handle generate account key button click
     async function handleGenerateAccountKey(): Promise<void> {
         // Prevent concurrent uploads
@@ -1228,6 +1296,10 @@ export namespace Dashboard {
         // Remove any existing handlers first to prevent duplicates
         $(document).off('click', '#generateKeyBtn', handleGenerateAccountKey);
         $(document).on('click', '#generateKeyBtn', handleGenerateAccountKey);
+        
+        // Delete account key button (delegated event handler for dynamically added button)
+        $(document).off('click', '#deleteKeyBtn', handleDeleteAccountKey);
+        $(document).on('click', '#deleteKeyBtn', handleDeleteAccountKey);
 
         // Initialize drag and drop
         initDragAndDrop();

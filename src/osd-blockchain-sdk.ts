@@ -321,27 +321,137 @@ export function clearPrivateKeyCache(): void {
     Object.keys(privateKeyCache).forEach(key => {
         delete privateKeyCache[key];
     });
+    // Also clear ECIES private key cache
+    clearECIESPrivateKeyCache();
 }
 
 // Cache for public keys (per address)
 const publicKeyCache: { [address: string]: Uint8Array } = {};
 
+// Cache for ECIES private keys (per address) - in-memory only for security
+const eciesPrivateKeyCache: { [address: string]: string } = {};
+
+// Cache for "Initiate Storage Session" signatures (per address) - shared with utils.ts
+// This allows us to reuse the signature instead of requesting it multiple times
+const storageSessionSignatureCache: { [address: string]: string } = {};
+
 /**
- * Generate a new ECIES keypair (public and private key)
+ * Get or request "Initiate Storage Session" signature
+ * This signature is shared across the app for deriving ECIES keys
  * 
+ * @param walletAddress - Wallet address (bech32 format)
+ * @returns Signature as base64 string
+ */
+export async function getStorageSessionSignature(walletAddress: string): Promise<string> {
+    // Check cache first
+    if (storageSessionSignatureCache[walletAddress]) {
+        console.log('Using cached "Initiate Storage Session" signature for', walletAddress);
+        return storageSessionSignatureCache[walletAddress];
+    }
+
+    const keplr = getKeplr();
+    if (!keplr || !keplr.signArbitrary) {
+        throw new Error('Keplr signArbitrary not available');
+    }
+
+    // Request "Initiate Storage Session" signature
+    const signatureMessage = 'Initiate Storage Session';
+    console.log('Requesting Keplr signature for "Initiate Storage Session"...');
+    const signatureResult = await keplr.signArbitrary(CHAIN_ID, walletAddress, signatureMessage);
+    
+    // Cache the signature
+    storageSessionSignatureCache[walletAddress] = signatureResult.signature;
+    console.log('"Initiate Storage Session" signature cached for', walletAddress);
+    
+    return signatureResult.signature;
+}
+
+/**
+ * Derive ECIES private key deterministically from wallet signature
+ * Uses Keplr's signArbitrary to sign "Initiate Storage Session" message, then derives private key from signature
+ * Same wallet will always produce the same ECIES keypair
+ * Reuses the same signature message used elsewhere in the app
+ * 
+ * @param walletAddress - Wallet address (bech32 format)
+ * @returns Private key as hex string (32 bytes)
+ */
+async function deriveECIESPrivateKeyFromWallet(walletAddress: string): Promise<string> {
+    // Check cache first - if we've already derived this key, use cached version
+    if (eciesPrivateKeyCache[walletAddress]) {
+        console.log('Using cached ECIES private key for', walletAddress);
+        return eciesPrivateKeyCache[walletAddress];
+    }
+
+    // Get the "Initiate Storage Session" signature (will use cache if available)
+    const signatureBase64 = await getStorageSessionSignature(walletAddress);
+    
+    // Derive private key from signature hash
+    // Use SHA-256 to get a 32-byte private key
+    const signatureBytes = Uint8Array.from(atob(signatureBase64), c => c.charCodeAt(0));
+    const privateKeyHash = await crypto.subtle.digest('SHA-256', signatureBytes);
+    const privateKeyBytes = new Uint8Array(privateKeyHash);
+    
+    // Ensure we have exactly 32 bytes
+    if (privateKeyBytes.length !== 32) {
+        throw new Error(`Invalid private key length: expected 32 bytes, got ${privateKeyBytes.length}`);
+    }
+    
+    const privateKeyHex = uint8ArrayToHex(privateKeyBytes);
+    
+    // Derive public key from private key to verify it matches blockchain
+    const { getPublicKey } = await import('@noble/secp256k1');
+    const derivedPublicKey = getPublicKey(privateKeyBytes, false); // false = uncompressed
+    const derivedPublicKeyHex = uint8ArrayToHex(derivedPublicKey);
+    console.log('Derived ECIES public key from private key:', derivedPublicKeyHex);
+    
+    // Cache the derived private key (in-memory only, not localStorage)
+    eciesPrivateKeyCache[walletAddress] = privateKeyHex;
+    console.log('ECIES private key derived and cached for', walletAddress);
+    
+    return privateKeyHex;
+}
+
+/**
+ * Clear ECIES private key cache (call when wallet disconnects)
+ */
+export function clearECIESPrivateKeyCache(): void {
+    Object.keys(eciesPrivateKeyCache).forEach(key => {
+        delete eciesPrivateKeyCache[key];
+    });
+    // Also clear signature cache
+    Object.keys(storageSessionSignatureCache).forEach(key => {
+        delete storageSessionSignatureCache[key];
+    });
+    console.log('ECIES private key cache and signature cache cleared');
+}
+
+/**
+ * Set storage session signature (called from utils.ts when signature is obtained)
+ * This allows sharing the signature between modules
+ */
+export function setStorageSessionSignature(walletAddress: string, signature: string): void {
+    storageSessionSignatureCache[walletAddress] = signature;
+    console.log('Storage session signature set for', walletAddress);
+}
+
+/**
+ * Generate/derive ECIES keypair deterministically from wallet
+ * Same wallet will always produce the same keypair
+ * 
+ * @param walletAddress - Wallet address (bech32 format)
  * @returns Object with privateKeyHex (hex string) and publicKeyHex (hex string, uncompressed format starting with 04)
  */
-export async function generateECIESKeypair(): Promise<{ privateKeyHex: string; publicKeyHex: string }> {
+export async function generateECIESKeypair(walletAddress: string): Promise<{ privateKeyHex: string; publicKeyHex: string }> {
     const { getPublicKey } = await import('@noble/secp256k1');
     
-    // Generate random 32-byte private key
-    const privateKeyBytes = crypto.getRandomValues(new Uint8Array(32));
+    // Derive private key deterministically from wallet signature
+    const privateKeyHex = await deriveECIESPrivateKeyFromWallet(walletAddress);
+    const privateKeyBytes = hexToUint8Array(privateKeyHex);
     
-    // Derive public key (uncompressed format, 65 bytes starting with 04)
+    // Derive public key from private key (uncompressed format, 65 bytes starting with 04)
     const publicKeyBytes = getPublicKey(privateKeyBytes, false); // false = uncompressed
     
-    // Convert to hex strings
-    const privateKeyHex = uint8ArrayToHex(privateKeyBytes);
+    // Convert to hex string
     const publicKeyHex = uint8ArrayToHex(publicKeyBytes);
     
     return { privateKeyHex, publicKeyHex };
@@ -512,50 +622,50 @@ export async function encryptFileKeyWithECIES(
 }
 
 /**
- * Get ECIES private key for an address (from sessionStorage or mnemonic)
+ * Get ECIES private key for an address (derived deterministically from wallet)
+ * Same wallet always produces the same private key
  * 
  * @param recipientAddress - Recipient's Cosmos wallet address (bech32 format)
- * @param mnemonic - Optional mnemonic (if not provided, will try to get from sessionStorage)
- * @returns Private key as hex string
+ * @returns Private key as hex string (derived on-demand from wallet signature)
  */
 async function getECIESPrivateKeyForAddress(recipientAddress: string): Promise<string> {
-    // Get from localStorage (stored when uploading ECIES public key, persists across sessions)
-    const storedPrivateKey = localStorage.getItem(`ecies_private_key_${recipientAddress}`);
-    if (storedPrivateKey) {
-        console.log('Using ECIES private key from localStorage');
-        return storedPrivateKey;
-    }
-    
-    // Check if user has uploaded ECIES public key to blockchain
-    let hasEciesPublicKey = false;
+    // Derive private key deterministically from wallet signature
+    // This will always produce the same key for the same wallet
     try {
-        const apiEndpoint = 'https://storage.datavault.space';
-        const response = await fetch(
-            `${apiEndpoint}/osd-blockchain/osdblockchain/v1/account/${recipientAddress}/ecies-public-key`
-        );
-        hasEciesPublicKey = response.ok;
+        const privateKeyHex = await deriveECIESPrivateKeyFromWallet(recipientAddress);
+        console.log('Derived ECIES private key from wallet signature');
+        return privateKeyHex;
     } catch (error) {
-        // Ignore errors when checking
-    }
-    
-    if (hasEciesPublicKey) {
-        throw new Error(
-            `ECIES private key not found for address ${recipientAddress}. ` +
-            `You have uploaded your ECIES public key, but the private key is missing from localStorage. ` +
-            `This may happen if you cleared your browser data. ` +
-            `Please re-upload your ECIES public key using the "Upload ECIES Public Key" button.`
-        );
-    } else {
-        throw new Error(
-            `ECIES private key not found for address ${recipientAddress}. ` +
-            `Please upload your ECIES public key first using the "Upload ECIES Public Key" button.`
-        );
+        // Check if user has uploaded ECIES public key to blockchain
+        let hasEciesPublicKey = false;
+        try {
+            const apiEndpoint = 'https://storage.datavault.space';
+            const response = await fetch(
+                `${apiEndpoint}/osd-blockchain/osdblockchain/v1/account/${recipientAddress}/ecies-public-key`
+            );
+            hasEciesPublicKey = response.ok;
+        } catch (fetchError) {
+            // Ignore errors when checking
+        }
+        
+        if (hasEciesPublicKey) {
+            throw new Error(
+                `Failed to derive ECIES private key for address ${recipientAddress}. ` +
+                `You have uploaded your ECIES public key, but cannot derive the private key. ` +
+                `Error: ${error instanceof Error ? error.message : 'Unknown error'}`
+            );
+        } else {
+            throw new Error(
+                `ECIES public key not found for address ${recipientAddress}. ` +
+                `Please upload your ECIES public key first using the "Upload ECIES Public Key" button.`
+            );
+        }
     }
 }
 
 /**
  * Decrypt a symmetric key (AES bundle) that was encrypted with ECIES
- * Uses the ECIES private key stored in localStorage (from uploading the public key)
+ * Derives the ECIES private key deterministically from wallet signature
  * 
  * @param encryptedFileKeyString - Encrypted AES bundle as pipe-delimited hex string: encryptedIV|encryptedKey
  * @param recipientAddress - Recipient's Cosmos wallet address (bech32 format)
@@ -565,7 +675,7 @@ export async function decryptFileKeyWithECIES(
     encryptedFileKeyString: string,
     recipientAddress: string
 ): Promise<IAesBundle> {
-    // Get the ECIES private key from localStorage
+    // Derive the ECIES private key deterministically from wallet signature
     const privateKeyHex = await getECIESPrivateKeyForAddress(recipientAddress);
     
     // Verify the private key corresponds to the public key on blockchain
@@ -578,24 +688,45 @@ export async function decryptFileKeyWithECIES(
         
         // Compare public keys (should match) - both should be uncompressed (65 bytes)
         if (publicKeyFromPrivate.length !== blockchainPublicKey.length) {
-            throw new Error('Public key length mismatch');
+            const derivedPubKeyHex = uint8ArrayToHex(publicKeyFromPrivate);
+            const blockchainPubKeyHex = uint8ArrayToHex(blockchainPublicKey);
+            console.error('=== Public Key Mismatch ===');
+            console.error('Derived public key (hex):', derivedPubKeyHex);
+            console.error('Blockchain public key (hex):', blockchainPubKeyHex);
+            throw new Error(`Public key length mismatch: derived=${publicKeyFromPrivate.length}, blockchain=${blockchainPublicKey.length}`);
         }
         
         let matches = true;
+        let firstMismatchIndex = -1;
         for (let i = 0; i < publicKeyFromPrivate.length; i++) {
             if (publicKeyFromPrivate[i] !== blockchainPublicKey[i]) {
                 matches = false;
+                firstMismatchIndex = i;
                 break;
             }
         }
         
         if (!matches) {
-            throw new Error('ECIES private key does not correspond to blockchain public key. Please verify the key was uploaded correctly.');
+            const derivedPubKeyHex = uint8ArrayToHex(publicKeyFromPrivate);
+            const blockchainPubKeyHex = uint8ArrayToHex(blockchainPublicKey);
+            console.error('=== Public Key Mismatch ===');
+            console.error('Derived public key (hex):', derivedPubKeyHex);
+            console.error('Blockchain public key (hex):', blockchainPubKeyHex);
+            console.error('First mismatch at byte index:', firstMismatchIndex);
+            console.error('Derived byte:', publicKeyFromPrivate[firstMismatchIndex]?.toString(16));
+            console.error('Blockchain byte:', blockchainPublicKey[firstMismatchIndex]?.toString(16));
+            throw new Error(
+                `ECIES private key does not correspond to blockchain public key. ` +
+                `The public key on the blockchain was likely uploaded using a different signature message. ` +
+                `Please delete and re-upload your ECIES public key.`
+            );
         }
+        
+        console.log('✓ Verified: Derived private key matches blockchain public key');
     } catch (error) {
         console.error('Error verifying ECIES private key:', error);
-        // Don't throw - just log the warning, decryption will fail if key is wrong anyway
-        console.warn('Could not verify ECIES private key matches public key, proceeding with decryption...');
+        // Throw the error - don't proceed with decryption if keys don't match
+        throw error;
     }
     
     // Decrypt AES bundle using ECIES with actual private key
@@ -604,7 +735,7 @@ export async function decryptFileKeyWithECIES(
 
 /**
  * Decrypt an account key (single 32-byte key) that was encrypted with ECIES
- * Uses the ECIES private key stored in localStorage (from uploading the public key)
+ * Derives the ECIES private key deterministically from wallet signature
  * 
  * @param encryptedAccountKeyHex - Encrypted account key as hex string (not pipe-delimited, just a single ECIES-encrypted value)
  * @param recipientAddress - Recipient's Cosmos wallet address (bech32 format)
@@ -614,7 +745,7 @@ export async function decryptAccountKeyWithECIES(
     encryptedAccountKeyHex: string,
     recipientAddress: string
 ): Promise<Uint8Array> {
-    // Get the ECIES private key from localStorage
+    // Derive the ECIES private key deterministically from wallet signature
     const privateKeyHex = await getECIESPrivateKeyForAddress(recipientAddress);
     
     // Decrypt account key using ECIES (single hex string, not pipe-delimited)
@@ -1156,6 +1287,7 @@ export default {
     
     // ECIES Keypair Generation
     generateECIESKeypair,
+    clearECIESPrivateKeyCache,
     
     // Blockchain
     postFileToBlockchain,

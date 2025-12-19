@@ -95,6 +95,24 @@ export interface MsgPostKeyResponse {
 }
 
 /**
+ * MsgDeleteKey is the Msg/DeleteKey request type.
+ * This message deletes an ECIES public key entry for the account.
+ */
+export interface MsgDeleteKey {
+  /** owner is the address that owns the ECIES public key (must match signer). */
+  owner: string;
+}
+
+/**
+ * MsgDeleteKeyResponse defines the response structure for executing a
+ * MsgDeleteKey message.
+ */
+export interface MsgDeleteKeyResponse {
+  /** success indicates whether the ECIES public key was successfully deleted. */
+  success: boolean;
+}
+
+/**
  * MsgPostFile is the Msg/PostFile request type.
  * This message is used to post file metadata to the chain after the file has been
  * prepared (split into chunks and Merkle root computed) but before it's uploaded to storage providers.
@@ -872,6 +890,122 @@ export const MsgPostKeyResponse: MessageFns<MsgPostKeyResponse> = {
   },
   fromPartial<I extends Exact<DeepPartial<MsgPostKeyResponse>, I>>(object: I): MsgPostKeyResponse {
     const message = createBaseMsgPostKeyResponse();
+    message.success = object.success ?? false;
+    return message;
+  },
+};
+
+function createBaseMsgDeleteKey(): MsgDeleteKey {
+  return { owner: "" };
+}
+
+export const MsgDeleteKey: MessageFns<MsgDeleteKey> = {
+  encode(message: MsgDeleteKey, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.owner !== "") {
+      writer.uint32(10).string(message.owner);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): MsgDeleteKey {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseMsgDeleteKey();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.owner = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): MsgDeleteKey {
+    return { owner: isSet(object.owner) ? globalThis.String(object.owner) : "" };
+  },
+
+  toJSON(message: MsgDeleteKey): unknown {
+    const obj: any = {};
+    if (message.owner !== "") {
+      obj.owner = message.owner;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<MsgDeleteKey>, I>>(base?: I): MsgDeleteKey {
+    return MsgDeleteKey.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<MsgDeleteKey>, I>>(object: I): MsgDeleteKey {
+    const message = createBaseMsgDeleteKey();
+    message.owner = object.owner ?? "";
+    return message;
+  },
+};
+
+function createBaseMsgDeleteKeyResponse(): MsgDeleteKeyResponse {
+  return { success: false };
+}
+
+export const MsgDeleteKeyResponse: MessageFns<MsgDeleteKeyResponse> = {
+  encode(message: MsgDeleteKeyResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.success !== false) {
+      writer.uint32(8).bool(message.success);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): MsgDeleteKeyResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseMsgDeleteKeyResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.success = reader.bool();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): MsgDeleteKeyResponse {
+    return { success: isSet(object.success) ? globalThis.Boolean(object.success) : false };
+  },
+
+  toJSON(message: MsgDeleteKeyResponse): unknown {
+    const obj: any = {};
+    if (message.success !== false) {
+      obj.success = message.success;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<MsgDeleteKeyResponse>, I>>(base?: I): MsgDeleteKeyResponse {
+    return MsgDeleteKeyResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<MsgDeleteKeyResponse>, I>>(object: I): MsgDeleteKeyResponse {
+    const message = createBaseMsgDeleteKeyResponse();
     message.success = object.success ?? false;
     return message;
   },
@@ -2175,6 +2309,11 @@ export interface Msg {
    * This public key is used for encrypting the account's symmetric key.
    */
   PostKey(request: MsgPostKey): Promise<MsgPostKeyResponse>;
+  /**
+   * DeleteKey deletes an ECIES public key entry for the account.
+   * This removes the stored ECIES public key from the chain.
+   */
+  DeleteKey(request: MsgDeleteKey): Promise<MsgDeleteKeyResponse>;
   /** PostFile defines a message for posting file metadata to the chain. */
   PostFile(request: MsgPostFile): Promise<MsgPostFileResponse>;
   /** RegisterIndexer registers a new indexer and assigns it a hash prefix range. */
@@ -2220,6 +2359,7 @@ export class MsgClientImpl implements Msg {
     this.BuyStorage = this.BuyStorage.bind(this);
     this.ExtendStorageDuration = this.ExtendStorageDuration.bind(this);
     this.PostKey = this.PostKey.bind(this);
+    this.DeleteKey = this.DeleteKey.bind(this);
     this.PostFile = this.PostFile.bind(this);
     this.RegisterIndexer = this.RegisterIndexer.bind(this);
     this.UpdateIndexerRange = this.UpdateIndexerRange.bind(this);
@@ -2251,6 +2391,12 @@ export class MsgClientImpl implements Msg {
     const data = MsgPostKey.encode(request).finish();
     const promise = this.rpc.request(this.service, "PostKey", data);
     return promise.then((data) => MsgPostKeyResponse.decode(new BinaryReader(data)));
+  }
+
+  DeleteKey(request: MsgDeleteKey): Promise<MsgDeleteKeyResponse> {
+    const data = MsgDeleteKey.encode(request).finish();
+    const promise = this.rpc.request(this.service, "DeleteKey", data);
+    return promise.then((data) => MsgDeleteKeyResponse.decode(new BinaryReader(data)));
   }
 
   PostFile(request: MsgPostFile): Promise<MsgPostFileResponse> {

@@ -178,13 +178,14 @@ export namespace Wallet {
         sessionStorage.setItem('walletName', key.name);
         sessionStorage.setItem('chainId', CHAIN_ID);
 
-        // Initialize ECIES key material right after wallet connection
+        // Initialize ECIES private key right after wallet connection
         // This ensures the key is cached before any file operations
+        // User will approve the signature once during connection, then it's cached
         try {
-            // Import the deriveECIESPrivateKey function
-            const { deriveECIESPrivateKey } = await import('./utils');
-            await deriveECIESPrivateKey(key.bech32Address);
-            console.log('ECIES key material initialized and cached during wallet connection');
+            // Import generateECIESKeypair which will derive and cache the private key
+            const { generateECIESKeypair } = await import('./osd-blockchain-sdk');
+            await generateECIESKeypair(key.bech32Address);
+            console.log('ECIES private key derived and cached during wallet connection');
         } catch (error) {
             console.warn('Failed to initialize ECIES key during wallet connection:', error);
             // Don't block wallet connection if this fails - it will be initialized on first use

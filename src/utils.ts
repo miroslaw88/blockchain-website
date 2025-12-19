@@ -43,21 +43,48 @@ export async function deriveECIESPrivateKey(userAddress: string): Promise<Crypto
         return eciesKeyMaterialCache[userAddress];
     }
 
-    console.log('⚠ ECIES key not in cache, requesting signature for', userAddress);
-    console.log('Cache keys:', Object.keys(eciesKeyMaterialCache));
-    const keplr = getKeplr();
-    if (!keplr || !keplr.signArbitrary) {
-        throw new Error('Keplr signArbitrary not available');
+    // Check if signature already exists in osd-blockchain-sdk (from wallet connection)
+    let signatureBase64: string | null = null;
+    try {
+        const { getStorageSessionSignature } = await import('./osd-blockchain-sdk');
+        // Try to get cached signature (this won't request a new one if it exists)
+        signatureBase64 = await getStorageSessionSignature(userAddress).catch(() => null);
+        if (signatureBase64) {
+            console.log('✓ Reusing "Initiate Storage Session" signature from osd-blockchain-sdk');
+        }
+    } catch (error) {
+        // If function doesn't exist or fails, we'll request a new signature
+        console.log('Could not get signature from osd-blockchain-sdk, will request new one');
     }
 
-    // Sign seed message to get signature (similar to "Initiate Storage Session")
-    const signatureSeed = 'Initiate Storage Session';
-    console.log('Requesting signature for message:', signatureSeed);
-    const signatureResult = await keplr.signArbitrary(CHAIN_ID, userAddress, signatureSeed);
-    console.log('Signature received, deriving key material...');
+    // If signature not found, request it
+    if (!signatureBase64) {
+        console.log('⚠ ECIES key not in cache, requesting signature for', userAddress);
+        console.log('Cache keys:', Object.keys(eciesKeyMaterialCache));
+        const keplr = getKeplr();
+        if (!keplr || !keplr.signArbitrary) {
+            throw new Error('Keplr signArbitrary not available');
+        }
+
+        // Sign seed message to get signature (similar to "Initiate Storage Session")
+        const signatureSeed = 'Initiate Storage Session';
+        console.log('Requesting signature for message:', signatureSeed);
+        const signatureResult = await keplr.signArbitrary(CHAIN_ID, userAddress, signatureSeed);
+        console.log('Signature received, deriving key material...');
+        signatureBase64 = signatureResult.signature;
+        
+        // Share the signature with osd-blockchain-sdk so it can reuse it for ECIES key derivation
+        try {
+            const { setStorageSessionSignature } = await import('./osd-blockchain-sdk');
+            setStorageSessionSignature(userAddress, signatureBase64);
+            console.log('✓ Shared "Initiate Storage Session" signature with osd-blockchain-sdk');
+        } catch (error) {
+            console.warn('Failed to share signature with osd-blockchain-sdk:', error);
+        }
+    }
     
     // Hash signature to create ECIES private key material
-    const signatureBytes = Uint8Array.from(atob(signatureResult.signature), c => c.charCodeAt(0));
+    const signatureBytes = Uint8Array.from(atob(signatureBase64), c => c.charCodeAt(0));
     const privateKeyHash = await crypto.subtle.digest('SHA-256', signatureBytes);
     
     // Import as raw key material for key derivation
