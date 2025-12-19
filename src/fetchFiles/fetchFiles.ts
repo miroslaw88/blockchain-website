@@ -351,8 +351,8 @@ function attachEventHandlers(walletAddress: string, currentPath: string): void {
             return;
         }
         
-        // Show share file modal (account key will be fetched from blockchain)
-        showShareFileModal(merkleRoot, fileName, walletAddress);
+        // Show share file modal with file's encrypted AES bundle
+        showShareFileModal(merkleRoot, fileName, walletAddress, encryptedFileKey);
     });
     
     // Add click handler for delete file buttons

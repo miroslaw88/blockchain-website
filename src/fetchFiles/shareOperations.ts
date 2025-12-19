@@ -4,13 +4,12 @@ import { shareFile } from '../shareFile';
 import { getShareFileModalTemplate } from '../templates';
 import { showToast } from './utils';
 import { encryptFileKeyWithECIES } from '../osd-blockchain-sdk';
-import { getAccountKey, hasAccountKey } from '../accountKey';
+import { hasAccountKey } from '../accountKey';
 import { Dashboard } from '../dashboard';
 import { fetchWithTimeout } from './utils';
 
 // Show share file modal dialog
-// Note: encryptedFileKey parameter kept for backwards compatibility but not used anymore
-// We now get the account key directly from blockchain
+// encryptedFileKey: The file's AES bundle encrypted with owner's public key (base64 string)
 export function showShareFileModal(merkleRoot: string, fileName: string, walletAddress: string, encryptedFileKey?: string): void {
     // Remove any existing modal
     $('#shareFileModal').remove();
@@ -24,6 +23,11 @@ export function showShareFileModal(merkleRoot: string, fileName: string, walletA
     // Initialize Bootstrap modal with static backdrop (non-dismissible)
     const modalElement = document.getElementById('shareFileModal');
     if (!modalElement) return;
+    
+    // Store encryptedFileKey in modal element's data attribute
+    if (encryptedFileKey) {
+        $(modalElement).attr('data-encrypted-file-key', encryptedFileKey);
+    }
     
     const modal = new (window as any).bootstrap.Modal(modalElement, {
         backdrop: 'static',
@@ -54,7 +58,8 @@ export function showShareFileModal(merkleRoot: string, fileName: string, walletA
     
     // Handle confirm button click
     $('#confirmShareFileBtn').off('click').on('click', async () => {
-        await handleShareFileSubmit(merkleRoot, fileName, walletAddress, modal);
+        const storedEncryptedKey = $(modalElement).attr('data-encrypted-file-key') || encryptedFileKey;
+        await handleShareFileSubmit(merkleRoot, fileName, walletAddress, modal, storedEncryptedKey);
     });
     
     // Handle cancel button click
@@ -77,7 +82,7 @@ export function showShareFileModal(merkleRoot: string, fileName: string, walletA
 }
 
 // Handle share file form submission
-async function handleShareFileSubmit(merkleRoot: string, fileName: string, walletAddress: string, modal: any): Promise<void> {
+async function handleShareFileSubmit(merkleRoot: string, fileName: string, walletAddress: string, modal: any, encryptedFileKey?: string): Promise<void> {
     const $confirmBtn = $('#confirmShareFileBtn');
     const $cancelBtn = $('#cancelShareFileBtn');
     const $btnText = $('#shareFileBtnText');
@@ -144,17 +149,21 @@ async function handleShareFileSubmit(merkleRoot: string, fileName: string, walle
             throw new Error(`Recipient ${shareAddress} does not have an account key. They must generate a symmetric key first.`);
         }
         
-        // Step 1: Get account's symmetric key from blockchain (encrypted with owner's key)
-        // Queries: GET /osd-blockchain/osdblockchain/v1/account/{walletAddress}/key
-        $statusText.text('Getting account key from blockchain...');
-        const accountKey = await getAccountKey(walletAddress);
+        // Step 1: Get file's AES bundle from encrypted_file_key
+        // The encryptedFileKey is the file's AES bundle encrypted with owner's public key
+        if (!encryptedFileKey) {
+            throw new Error('File encryption key not found. Cannot share file without encryption key.');
+        }
         
-        // Step 2: Encrypt account key with recipient's public key using true ECIES
+        $statusText.text('Decrypting file encryption key...');
+        const { decryptFileKeyWithECIES } = await import('../osd-blockchain-sdk');
+        const fileAesBundle = await decryptFileKeyWithECIES(encryptedFileKey, walletAddress);
+        
+        // Step 2: Encrypt file's AES bundle with recipient's public key using ECIES
         // getAccountPublicKey() queries blockchain: GET /osd-blockchain/osdblockchain/v1/account/{shareAddress}/key
         // No indexer queries - all data comes from blockchain
-        $statusText.text('Encrypting account key for recipient...');
-        const recipientEncryptedKeyBytes = await encryptFileKeyWithECIES(accountKey, shareAddress);
-        const recipientEncryptedKeyBase64 = btoa(String.fromCharCode(...recipientEncryptedKeyBytes));
+        $statusText.text('Encrypting file key for recipient...');
+        const recipientEncryptedKeyBase64 = await encryptFileKeyWithECIES(fileAesBundle, shareAddress);
         
         // Debug: Verify encrypted key was created
         console.log('Encrypted key for recipient:', {

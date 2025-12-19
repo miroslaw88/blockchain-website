@@ -1,8 +1,7 @@
 // Download file from storage provider and decrypt
 
 import { getKeplr, CHAIN_ID } from './utils';
-import { decryptFile, decryptFileKeyWithECIES } from './osd-blockchain-sdk';
-import { getAccountKey } from './accountKey';
+import { decryptFile, decryptFileKeyWithECIES, IAesBundle } from './osd-blockchain-sdk';
 
 // Show toast notification
 function showToast(message: string, type: 'error' | 'success' | 'info' = 'error'): void {
@@ -382,12 +381,20 @@ async function parseMultipartResponse(
 }
 
 // Helper function to complete the download (decrypt and save)
-async function finishDownload(encryptedBlob: Blob, fileKey: Uint8Array, fileName: string): Promise<void> {
-    // Step 3: Decrypt file using symmetric key
-    console.log('Decrypting file...');
+async function finishDownload(encryptedBlob: Blob, fileAesBundle: IAesBundle, fileName: string): Promise<void> {
+    // Step 3: Decrypt file using AES bundle
+    console.log('=== Starting File Decryption ===');
+    console.log('Encrypted blob size:', encryptedBlob.size, 'bytes');
+    console.log('AES bundle IV length:', fileAesBundle.iv.length);
+    console.log('AES bundle key algorithm:', fileAesBundle.key.algorithm.name);
+    const aesAlgorithm = fileAesBundle.key.algorithm as AesKeyAlgorithm;
+    console.log('AES bundle key length:', aesAlgorithm.length);
     
-    // Decrypt the file using symmetric key
-    const decryptedBlob = await decryptFile(encryptedBlob, fileKey);
+    // Decrypt the file using AES bundle
+    console.log('Calling decryptFile...');
+    const { decryptFile } = await import('./osd-blockchain-sdk');
+    const decryptedBlob = await decryptFile(encryptedBlob, fileAesBundle);
+    console.log('File decrypted successfully, size:', decryptedBlob.size, 'bytes');
     
     // Step 4: Save file
     console.log('Saving file:', fileName);
@@ -424,9 +431,9 @@ export async function downloadSharedFile(
             throw new Error('No storage providers available for this file');
         }
         
-        // Decrypt file key with recipient's private key
-        const encryptedFileKeyBytes = Uint8Array.from(atob(encryptedFileKeyBase64), c => c.charCodeAt(0));
-        const fileKey = await decryptFileKeyWithECIES(encryptedFileKeyBytes, walletAddress);
+        // Decrypt file's AES bundle with recipient's private key
+        const { decryptFileKeyWithECIES } = await import('./osd-blockchain-sdk');
+        const fileAesBundle = await decryptFileKeyWithECIES(encryptedFileKeyBase64, walletAddress);
         
         // Use the first available storage provider
         const provider = storageProviders[0];
@@ -501,13 +508,13 @@ export async function downloadSharedFile(
             
             const encryptedBlob = await parseMultipartResponse(encryptedResponse, contentType, totalChunksNum, progressCallback);
             console.log(`Downloaded and combined ${totalChunksHeader || 'unknown'} chunks: ${encryptedBlob.size} bytes`);
-            await finishDownload(encryptedBlob, fileKey, responseFileName);
+            await finishDownload(encryptedBlob, fileAesBundle, responseFileName);
         } else {
             // Fallback: treat as single blob
             console.warn('Response is not multipart, treating as single blob');
             const encryptedBlob = await encryptedResponse.blob();
             console.log(`Downloaded encrypted file: ${encryptedBlob.size} bytes`);
-            await finishDownload(encryptedBlob, fileKey, responseFileName);
+            await finishDownload(encryptedBlob, fileAesBundle, responseFileName);
         }
         
     } catch (error) {
@@ -528,25 +535,59 @@ export async function downloadFile(fileMetadata: any, walletAddress: string, $bu
             throw new Error('Merkle root not found in file metadata');
         }
         
-        // Get account's symmetric key from blockchain (all files use the same account key)
-        const accountKey = await getAccountKey(walletAddress);
+        // Step 1: Query file information from indexer to get encrypted_file_key and storage providers
+        const { Dashboard } = await import('./dashboard');
+        const indexer = await Dashboard.waitForIndexer();
         
-        // Step 1: Query file information from blockchain to get storage providers
-        const apiEndpoint = 'https://storage.datavault.space';
-        const downloadInfoUrl = `${apiEndpoint}/osd-blockchain/osdblockchain/v1/file/${merkleRoot}/download?owner=${walletAddress}`;
+        const protocol = indexer.indexer_address.includes('localhost') || indexer.indexer_address.match(/^\d+\.\d+\.\d+\.\d+/) ? 'http' : 'https';
+        const downloadInfoUrl = `${protocol}://${indexer.indexer_address}/api/indexer/v1/files/${merkleRoot}?owner=${walletAddress}`;
         
-        console.log('Querying file info from:', downloadInfoUrl);
+        console.log('Querying file info from indexer:', downloadInfoUrl);
         
         const infoResponse = await fetchWithTimeout(downloadInfoUrl, 15000);
         if (!infoResponse.ok) {
-            throw new Error(`Failed to query file info: ${infoResponse.status} ${infoResponse.statusText}`);
+            throw new Error(`Failed to query file info from indexer: ${infoResponse.status} ${infoResponse.statusText}`);
         }
         
         const downloadInfo = await infoResponse.json();
-        console.log('File download info:', downloadInfo);
+        console.log('File download info from indexer:', downloadInfo);
+        
+        // Get encrypted_file_key from indexer response
+        const fileData = downloadInfo.file || {};
+        const encryptedFileKey = fileData.encrypted_file_key || fileData.encryptedFileKey;
+        if (!encryptedFileKey) {
+            throw new Error('Encrypted file key not found in indexer response. File may not be properly encrypted.');
+        }
+        
+        // Debug: Log encrypted file key details
+        console.log('=== Encrypted File Key Debug ===');
+        console.log('Encrypted file key type:', typeof encryptedFileKey);
+        console.log('Encrypted file key length:', encryptedFileKey.length);
+        console.log('Contains pipe delimiter:', encryptedFileKey.includes('|'));
+        console.log('First 50 chars:', encryptedFileKey.substring(0, 50));
+        console.log('Last 50 chars:', encryptedFileKey.substring(encryptedFileKey.length - 50));
+        const pipeIndex = encryptedFileKey.indexOf('|');
+        if (pipeIndex > 0) {
+            console.log('Encrypted IV length (hex):', pipeIndex);
+            console.log('Encrypted Key length (hex):', encryptedFileKey.length - pipeIndex - 1);
+        }
+        
+        // Decrypt file's AES bundle with owner's private key
+        const { decryptFileKeyWithECIES } = await import('./osd-blockchain-sdk');
+        console.log('Decrypting file key with ECIES...');
+        let fileAesBundle;
+        try {
+            fileAesBundle = await decryptFileKeyWithECIES(encryptedFileKey, walletAddress);
+            console.log('File AES bundle decrypted successfully');
+            console.log('Decrypted IV length:', fileAesBundle.iv.length);
+            console.log('Decrypted key algorithm:', fileAesBundle.key.algorithm.name);
+            console.log('Decrypted key extractable:', fileAesBundle.key.extractable);
+        } catch (error) {
+            console.error('Error decrypting file key:', error);
+            throw error;
+        }
         
         // Parse metadata (handle both camelCase and snake_case)
-        const fileData = downloadInfo.file || {};
         const metadataStr = fileData.metadata || '';
         const metadata: any = JSON.parse(metadataStr || '{}');
         
@@ -650,13 +691,13 @@ export async function downloadFile(fileMetadata: any, walletAddress: string, $bu
             
             const encryptedBlob = await parseMultipartResponse(encryptedResponse, contentType, totalChunksNum, progressCallback);
             console.log(`Downloaded and combined ${totalChunksHeader || 'unknown'} chunks: ${encryptedBlob.size} bytes`);
-            await finishDownload(encryptedBlob, accountKey, responseFileName);
+            await finishDownload(encryptedBlob, fileAesBundle, responseFileName);
         } else {
             // Fallback: treat as single blob
             console.warn('Response is not multipart, treating as single blob');
             const encryptedBlob = await encryptedResponse.blob();
             console.log(`Downloaded encrypted file: ${encryptedBlob.size} bytes`);
-            await finishDownload(encryptedBlob, accountKey, responseFileName);
+            await finishDownload(encryptedBlob, fileAesBundle, responseFileName);
         }
         
     } catch (error) {

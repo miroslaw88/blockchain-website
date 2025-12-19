@@ -118,6 +118,20 @@ export function formatEncryptionKey(keyBase64: string): string {
     }
 }
 
+// Format hex-encoded key for display (show first 16 and last 16 hex characters)
+export function formatHexKey(keyHex: string): string {
+    if (!keyHex || keyHex.length === 0) {
+        return '';
+    }
+    
+    // For hex strings, show first 16 characters (8 bytes) and last 16 characters (8 bytes)
+    if (keyHex.length > 32) {
+        return `${keyHex.substring(0, 16)}...${keyHex.substring(keyHex.length - 16)}`;
+    } else {
+        return keyHex;
+    }
+}
+
 // Format date as YYYY-MM-DD with time (for file expiration, storage expiration, etc.)
 export function formatDate(timestamp: number): string {
     if (!timestamp || timestamp === 0) {

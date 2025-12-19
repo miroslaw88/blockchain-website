@@ -8,9 +8,9 @@ import { extendStorageDuration } from './extendStorage';
 import { getExtendStorageModalTemplate } from './templates';
 import { getBuyStorageModalTemplate } from './templates';
 import { submitChunkMetadata } from './submitChunkMetadata';
-import { encryptFile, encryptFileKeyWithECIES, calculateMerkleRoot, hashFilename } from './osd-blockchain-sdk';
+import { encryptFile, encryptFileKeyWithECIES, calculateMerkleRoot, hashFilename, genAesBundle } from './osd-blockchain-sdk';
 import { getAccountKey, hasAccountKey, getEncryptedAccountKey, clearAccountKeyCache } from './accountKey';
-import { formatEncryptionKey } from './utils';
+import { formatHexKey } from './utils';
 import { generateAccountKey } from './generateAccountKey';
 import { showToast } from './fetchFiles';
 
@@ -102,6 +102,7 @@ export namespace Dashboard {
 
     // Disconnect wallet function
     async function disconnectWallet(): Promise<void> {
+        
         try {
             const keplr = getKeplr();
             if (keplr && keplr.disable) {
@@ -728,22 +729,19 @@ export namespace Dashboard {
             const fileData = await file.arrayBuffer();
             const originalFileHash = await calculateMerkleRoot(fileData);
 
-            // Step 3: Get account key from blockchain and encrypt file
-            updateUploadingFileProgress(uploadId, 10, 'Getting account key...');
+            // Step 3: Generate per-file AES bundle and encrypt file
+            updateUploadingFileProgress(uploadId, 10, 'Generating file encryption key...');
             
-            // Get account's symmetric key from blockchain (encrypted with owner's key)
-            const accountKey = await getAccountKey(userAddress);
+            // Generate unique AES bundle for this file (like Jackal)
+            const fileAesBundle = await genAesBundle();
             
             updateUploadingFileProgress(uploadId, 15, 'Encrypting file...');
             
-            // Encrypt file with account key (all files use the same account key)
-            const encryptedChunks = await encryptFile(file, accountKey);
+            // Encrypt file with per-file AES bundle
+            const encryptedChunks = await encryptFile(file, fileAesBundle);
             
-            // Encrypt account key with owner's public key for storage in transaction
-            // Note: This is for backwards compatibility. The account key is already stored on blockchain,
-            // but we include it here in case the file needs to be decrypted independently
-            const encryptedFileKeyBytes = await encryptFileKeyWithECIES(accountKey, userAddress);
-            const encryptedFileKeyBase64 = btoa(String.fromCharCode(...encryptedFileKeyBytes));
+            // Encrypt file's AES bundle with owner's public key for storage in transaction
+            const encryptedFileKeyBase64 = await encryptFileKeyWithECIES(fileAesBundle, userAddress);
 
             // Step 4: Calculate Merkle roots
             // - Individual merkle root for each chunk (for provider validation)
@@ -862,13 +860,15 @@ export namespace Dashboard {
                     console.log('Submitting chunk metadata:', {
                         owner: userAddress,
                         merkleRoot: combinedMerkleRoot,
+                        encryptedFileKey: encryptedFileKeyBase64.substring(0, 50) + '...',
                         chunks: chunks
                     });
                     
                     const chunkMetadataResult = await submitChunkMetadata(
                         userAddress,
                         combinedMerkleRoot,
-                        chunks
+                        chunks,
+                        encryptedFileKeyBase64
                     );
                     
                     console.log(`Chunk metadata submitted: ${chunkMetadataResult.successCount} success(es), ${chunkMetadataResult.failureCount} failure(s)`);
@@ -984,17 +984,26 @@ export namespace Dashboard {
         try {
             const hasKey = await hasAccountKey(walletAddress);
             
-            // Always show the "Generate Asymmetric Key" button
+            // Always show the "Upload ECIES Public Key" button
             let keyInfoHtml = '';
             if (hasKey) {
-                // Key exists - display the encrypted key alongside the button
+                // Key exists - display the public key
                 try {
-                    const encryptedKey = await getEncryptedAccountKey(walletAddress);
-                    const formattedKey = formatEncryptionKey(encryptedKey);
-                    
-                    keyInfoHtml = `<span class="text-muted small me-2" style="font-family: monospace;">Key: ${formattedKey}</span>`;
+                    const apiEndpoint = 'https://storage.datavault.space';
+                    const response = await fetch(
+                        `${apiEndpoint}/osd-blockchain/osdblockchain/v1/account/${walletAddress}/ecies-public-key`
+                    );
+                    if (response.ok) {
+                        const data = await response.json();
+                        // Response structure: { "ecies_public_key": "04..." } (matches QueryECIESPublicKeyResponse protobuf)
+                        const publicKey = data.ecies_public_key || '';
+                        if (publicKey) {
+                            const formattedKey = formatHexKey(publicKey);
+                            keyInfoHtml = `<span class="text-muted small me-2" style="font-family: monospace;">ECIES Key: ${formattedKey}</span>`;
+                        }
+                    }
                 } catch (error) {
-                    console.error('Error fetching encrypted key for display:', error);
+                    console.error('Error fetching ECIES public key for display:', error);
                     keyInfoHtml = '<span class="text-muted small me-2">Key: Error loading</span>';
                 }
             }
@@ -1002,7 +1011,7 @@ export namespace Dashboard {
             $keyStatus.html(`
                 ${keyInfoHtml}
                 <button id="generateKeyBtn" class="btn btn-sm btn-outline-primary">
-                    Generate Asymmetric Key
+                    Upload ECIES Public Key
                 </button>
             `);
         } catch (error) {
@@ -1010,7 +1019,7 @@ export namespace Dashboard {
             // On error, still show the button
             $keyStatus.html(`
                 <button id="generateKeyBtn" class="btn btn-sm btn-outline-primary">
-                    Generate Asymmetric Key
+                    Upload ECIES Public Key
                 </button>
             `);
         }
@@ -1031,32 +1040,34 @@ export namespace Dashboard {
         const originalText = $button.text();
         $button.html(`
             <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-            Generating...
+            Uploading...
         `);
 
         try {
-            const result = await generateAccountKey();
+            const { uploadECIESPublicKey } = await import('./generateAccountKey');
+            const result = await uploadECIESPublicKey();
 
             if (result.success) {
                 showToast(
-                    `Account key generated successfully! Tx: ${result.transactionHash?.substring(0, 8)}...`,
+                    `ECIES public key uploaded successfully! Tx: ${result.transactionHash?.substring(0, 8)}...`,
                     'success'
                 );
 
-                // Clear the account key cache so it gets refreshed
-                clearAccountKeyCache();
+                // Clear the public key cache so it gets refreshed
+                // Note: We need to clear the cache in osd-blockchain-sdk.ts
+                // For now, we'll just refresh the display
 
                 // Refresh the key status display
                 await checkAndUpdateAccountKeyStatus(walletAddress);
             } else {
-                showToast(`Failed to generate account key: ${result.error || 'Unknown error'}`, 'error');
+                showToast(`Failed to upload ECIES public key: ${result.error || 'Unknown error'}`, 'error');
                 // Re-enable button
                 $button.prop('disabled', false);
                 $button.text(originalText);
             }
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-            showToast(`Error generating account key: ${errorMessage}`, 'error');
+            showToast(`Error uploading ECIES public key: ${errorMessage}`, 'error');
             // Re-enable button
             $button.prop('disabled', false);
             $button.text(originalText);

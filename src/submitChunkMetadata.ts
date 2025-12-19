@@ -55,7 +55,8 @@ export async function queryIndexersForFile(merkleRoot: string): Promise<QueryInd
 export async function submitChunkMetadata(
     owner: string,
     merkleRoot: string,
-    chunks: ChunkInfo[]
+    chunks: ChunkInfo[],
+    encryptedFileKey: string
 ): Promise<SubmitChunkMetadataResult> {
     // Step 1: Query which indexers handle this merkle root
     console.log('Querying indexers for merkle root:', merkleRoot);
@@ -80,6 +81,7 @@ export async function submitChunkMetadata(
             const payload = {
                 owner: owner,
                 merkleRoot: merkleRoot,
+                encryptedFileKey: encryptedFileKey,
                 chunks: chunks.map(chunk => ({
                     index: chunk.index,
                     hash: chunk.hash,
@@ -89,6 +91,9 @@ export async function submitChunkMetadata(
             
              const response = await fetch(indexerUrl, {
                  method: 'POST',
+                 headers: {
+                     'Content-Type': 'application/json'
+                 },
                  body: JSON.stringify(payload)
              });
             

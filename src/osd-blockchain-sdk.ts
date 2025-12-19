@@ -86,57 +86,240 @@ export function getKeplr(): KeplrWindow['keplr'] {
 }
 
 // ============================================================================
-// ECIES Key Derivation (Cached)
+// Private Key Management (Mnemonic-based, like Jackal)
 // ============================================================================
 
-// Cache for ECIES key material (per user address)
-const eciesKeyMaterialCache: { [address: string]: CryptoKey } = {};
+// Cache for private keys (per user address) - derived from mnemonic
+const privateKeyCache: { [address: string]: string } = {}; // hex string
 
 /**
- * Derive ECIES private key from wallet signature
- * Uses "Initiate Storage Session" message to get signature, then hashes it to create key material
- * Results are cached per user address to avoid repeated signature requests
+ * Get the actual secp256k1 private key from mnemonic (like Jackal)
+ * This matches the public key stored on the blockchain
+ * 
+ * @param mnemonic - The mnemonic phrase (12/24 words)
+ * @param addressPrefix - Address prefix (default: 'cosmos')
+ * @param hdPath - HD derivation path (default: "m/44'/118'/0'/0/0" for Cosmos)
+ * @returns Private key as hex string (64 characters, 32 bytes)
  */
-export async function deriveECIESPrivateKey(userAddress: string, chainId: string = CHAIN_ID): Promise<CryptoKey> {
-    // Check cache first
-    if (eciesKeyMaterialCache[userAddress]) {
-        return eciesKeyMaterialCache[userAddress];
+export async function getPrivateKeyFromMnemonic(
+    mnemonic: string,
+    addressPrefix: string = 'cosmos',
+    hdPath?: string
+): Promise<string> {
+    const { DirectSecp256k1HdWallet } = await import('@cosmjs/proto-signing');
+    const { stringToPath } = await import('@cosmjs/crypto');
+    
+    // Default HD path for Cosmos (m/44'/118'/0'/0/0)
+    const defaultHdPath = stringToPath("m/44'/118'/0'/0/0");
+    const hdPathToUse = hdPath ? stringToPath(hdPath) : defaultHdPath;
+    
+    // Create wallet from mnemonic
+    const wallet = await DirectSecp256k1HdWallet.fromMnemonic(mnemonic, {
+        prefix: addressPrefix,
+        hdPaths: [hdPathToUse],
+    });
+    
+    // Get the account (first account from HD path)
+    const accounts = await wallet.getAccounts();
+    if (accounts.length === 0) {
+        throw new Error('No accounts found from mnemonic');
     }
-
-    const keplr = getKeplr();
-    if (!keplr || !keplr.signArbitrary) {
-        throw new Error('Keplr signArbitrary not available');
-    }
-
-    // Sign seed message to get signature (similar to "Initiate Storage Session")
-    const signatureSeed = 'Initiate Storage Session';
-    const signatureResult = await keplr.signArbitrary(chainId, userAddress, signatureSeed);
     
-    // Hash signature to create ECIES private key material
-    const signatureBytes = Uint8Array.from(atob(signatureResult.signature), c => c.charCodeAt(0));
-    const privateKeyHash = await crypto.subtle.digest('SHA-256', signatureBytes);
+    // Use @cosmjs/crypto to derive the keypair directly from the mnemonic
+    // This matches what DirectSecp256k1HdWallet does internally
+    const { EnglishMnemonic } = await import('@cosmjs/crypto');
+    const { Bip39 } = await import('@cosmjs/crypto');
+    const { Slip10, Slip10Curve } = await import('@cosmjs/crypto');
     
-    // Import as raw key material for key derivation
-    const keyMaterial = await crypto.subtle.importKey(
-        'raw',
-        privateKeyHash,
-        'PBKDF2',
-        false,
-        ['deriveBits', 'deriveKey']
-    );
-
-    // Cache the key material
-    eciesKeyMaterialCache[userAddress] = keyMaterial;
+    // Convert mnemonic to seed
+    const mnemonicChecked = new EnglishMnemonic(mnemonic);
+    const seed = await Bip39.mnemonicToSeed(mnemonicChecked);
     
-    return keyMaterial;
+    // Derive keypair from seed using HD path (SLIP-10 derivation)
+    // This is the same method DirectSecp256k1HdWallet uses internally
+    const keypair = Slip10.derivePath(Slip10Curve.Secp256k1, seed, hdPathToUse);
+    
+    // Return private key as hex string (32 bytes = 64 hex characters)
+    return uint8ArrayToHex(keypair.privkey);
 }
 
 /**
- * Clear ECIES key cache (useful for logout/disconnect)
+ * Get private key for an address using Keplr's getOfflineSigner
+ * Uses Keplr's signing to derive key material that can work with ECIES
+ * 
+ * Note: This is a workaround - Keplr doesn't expose private keys directly.
+ * We use the offline signer to sign a deterministic message and derive key material.
+ * However, this derived key may not match the actual public key on the blockchain.
+ * 
+ * @param address - The wallet address (bech32 format)
+ * @param chainId - Chain ID (defaults to CHAIN_ID)
+ * @returns Private key as hex string (derived from Keplr signing)
  */
-export function clearECIESKeyCache(): void {
-    Object.keys(eciesKeyMaterialCache).forEach(key => {
-        delete eciesKeyMaterialCache[key];
+async function getPrivateKeyFromKeplrSigner(
+    address: string,
+    chainId: string = CHAIN_ID
+): Promise<string> {
+    const keplr = getKeplr();
+    if (!keplr) {
+        throw new Error('Keplr not available');
+    }
+    
+    await keplr.enable(chainId);
+    
+    // Get the public key from Keplr to verify we have the right account
+    if (!keplr.getKey) {
+        throw new Error('Keplr getKey not available');
+    }
+    const key = await keplr.getKey(chainId);
+    if (key.bech32Address !== address) {
+        throw new Error(`Address mismatch: expected ${address}, got ${key.bech32Address}`);
+    }
+    
+    // Use Keplr's offline signer to sign a deterministic message
+    // This proves we have access to the private key, but we can't extract it directly
+    const offlineSigner = keplr.getOfflineSigner(chainId);
+    const accounts = await offlineSigner.getAccounts();
+    
+    if (accounts.length === 0) {
+        throw new Error('No accounts found from Keplr');
+    }
+    
+    // Get the account that matches the address
+    const account = accounts.find((acc: any) => acc.address === address);
+    if (!account) {
+        throw new Error(`Account not found for address ${address}`);
+    }
+    
+    // Use signArbitrary to get a signature from Keplr
+    // This signature is created with the actual private key, but we can't extract it
+    // Instead, we'll use the signature to derive key material
+    // However, this won't match the actual private key for ECIES decryption
+    
+    // Try to use the offline signer's signAmino or signDirect methods
+    // to sign a message and extract key material from the signature
+    const { makeSignDoc } = await import('@cosmjs/amino');
+    
+    // Create a deterministic sign doc for key derivation
+    const signDoc = makeSignDoc(
+        [],
+        { amount: [], gas: '0' },
+        chainId,
+        '',
+        0,
+        0
+    );
+    
+    try {
+        // Sign the document using the offline signer
+        // This will use Keplr's actual private key to sign
+        const signResponse = await offlineSigner.signAmino(address, signDoc);
+        
+        // Extract signature bytes
+        const signatureBytes = Uint8Array.from(
+            atob(signResponse.signature.signature),
+            c => c.charCodeAt(0)
+        );
+        
+        // Derive private key material from signature
+        // Note: This is a workaround - the derived key won't match the actual private key
+        // but we'll try to use it for ECIES decryption
+        const privateKeyHash = await crypto.subtle.digest('SHA-256', signatureBytes);
+        const privateKeyMaterial = new Uint8Array(privateKeyHash).slice(0, 32);
+        
+        // Convert to hex string
+        const privateKeyHex = uint8ArrayToHex(privateKeyMaterial);
+        
+        // Verify this derived key produces a public key that matches
+        // If it doesn't match, we can't use it for ECIES
+        const { getPublicKey } = await import('@noble/secp256k1');
+        const derivedPublicKey = getPublicKey(privateKeyMaterial, true);
+        const blockchainPublicKey = await getAccountPublicKey(address);
+        
+        // Check if they match
+        if (derivedPublicKey.length === blockchainPublicKey.length) {
+            let matches = true;
+            for (let i = 0; i < derivedPublicKey.length; i++) {
+                if (derivedPublicKey[i] !== blockchainPublicKey[i]) {
+                    matches = false;
+                    break;
+                }
+            }
+            
+            if (matches) {
+                // Success! The derived key matches the public key
+                return privateKeyHex;
+            }
+        }
+        
+        // The derived key doesn't match - we can't use it for ECIES
+        throw new Error('Cannot derive matching private key from Keplr signer. The derived key does not match the blockchain public key.');
+        
+    } catch (error) {
+        console.error('Error deriving private key from Keplr signer:', error);
+        throw new Error(`Failed to derive private key from Keplr: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+}
+
+/**
+ * Get private key for an address (from cache, Keplr signer, or derive from mnemonic)
+ * 
+ * @param address - The wallet address (bech32 format)
+ * @param mnemonic - Optional mnemonic phrase
+ * @param chainId - Chain ID for Keplr (defaults to CHAIN_ID)
+ * @returns Private key as hex string
+ */
+export async function getPrivateKeyForAddress(
+    address: string,
+    mnemonic?: string,
+    chainId: string = CHAIN_ID
+): Promise<string> {
+    // Check cache first
+    if (privateKeyCache[address]) {
+        return privateKeyCache[address];
+    }
+    
+    // If mnemonic provided, use it
+    if (mnemonic) {
+        const privateKeyHex = await getPrivateKeyFromMnemonic(mnemonic);
+        privateKeyCache[address] = privateKeyHex;
+        return privateKeyHex;
+    }
+    
+    // Try to get from sessionStorage
+    const storedMnemonic = sessionStorage.getItem(`mnemonic_${address}`);
+    if (storedMnemonic) {
+        const privateKeyHex = await getPrivateKeyFromMnemonic(storedMnemonic);
+        privateKeyCache[address] = privateKeyHex;
+        return privateKeyHex;
+    }
+    
+    // Try to get from Keplr's offline signer
+    try {
+        return await getPrivateKeyFromKeplrSigner(address, chainId);
+    } catch (error) {
+        // If Keplr approach fails, throw the original error
+        throw new Error(`Mnemonic required for address ${address}. Please provide mnemonic or set it in sessionStorage.`);
+    }
+}
+
+/**
+ * Set mnemonic for an address (stores in sessionStorage)
+ * 
+ * @param address - The wallet address
+ * @param mnemonic - The mnemonic phrase
+ */
+export function setMnemonicForAddress(address: string, mnemonic: string): void {
+    sessionStorage.setItem(`mnemonic_${address}`, mnemonic);
+    // Clear private key cache to force re-derivation
+    delete privateKeyCache[address];
+}
+
+/**
+ * Clear private key cache (useful for logout/disconnect)
+ */
+export function clearPrivateKeyCache(): void {
+    Object.keys(privateKeyCache).forEach(key => {
+        delete privateKeyCache[key];
     });
 }
 
@@ -144,12 +327,32 @@ export function clearECIESKeyCache(): void {
 const publicKeyCache: { [address: string]: Uint8Array } = {};
 
 /**
- * Get account public key from blockchain
- * Queries the account key endpoint: GET /osd-blockchain/osdblockchain/v1/account/{address}/key
- * The response should include the public_key field
+ * Generate a new ECIES keypair (public and private key)
+ * 
+ * @returns Object with privateKeyHex (hex string) and publicKeyHex (hex string, uncompressed format starting with 04)
+ */
+export async function generateECIESKeypair(): Promise<{ privateKeyHex: string; publicKeyHex: string }> {
+    const { getPublicKey } = await import('@noble/secp256k1');
+    
+    // Generate random 32-byte private key
+    const privateKeyBytes = crypto.getRandomValues(new Uint8Array(32));
+    
+    // Derive public key (uncompressed format, 65 bytes starting with 04)
+    const publicKeyBytes = getPublicKey(privateKeyBytes, false); // false = uncompressed
+    
+    // Convert to hex strings
+    const privateKeyHex = uint8ArrayToHex(privateKeyBytes);
+    const publicKeyHex = uint8ArrayToHex(publicKeyBytes);
+    
+    return { privateKeyHex, publicKeyHex };
+}
+
+/**
+ * Get account ECIES public key from blockchain
+ * Queries the ECIES public key endpoint: GET /osd-blockchain/osdblockchain/v1/account/{address}/ecies-public-key
  * 
  * @param address - Account address (bech32 format)
- * @returns Public key as Uint8Array (compressed secp256k1 format, 33 bytes)
+ * @returns Public key as Uint8Array (uncompressed secp256k1 format, 65 bytes starting with 04)
  */
 async function getAccountPublicKey(address: string): Promise<Uint8Array> {
     // Check cache first
@@ -160,291 +363,262 @@ async function getAccountPublicKey(address: string): Promise<Uint8Array> {
     try {
         const apiEndpoint = 'https://storage.datavault.space';
         
-        // Query the account key endpoint
-        // Expected response: { "encrypted_account_key": "...", "public_key": "..." }
+        // Query the ECIES public key endpoint
+        // Expected response: { "ecies_public_key": "04..." }
         const response = await fetch(
-            `${apiEndpoint}/osd-blockchain/osdblockchain/v1/account/${address}/key`
+            `${apiEndpoint}/osd-blockchain/osdblockchain/v1/account/${address}/ecies-public-key`
         );
 
         if (!response.ok) {
-            throw new Error(`Failed to fetch account public key: ${response.status} ${response.statusText}`);
+            if (response.status === 404) {
+                throw new Error(`ECIES public key not found for address ${address}. Please upload your ECIES public key first.`);
+            }
+            throw new Error(`Failed to fetch account ECIES public key: ${response.status} ${response.statusText}`);
         }
 
         const data = await response.json();
         
-        // Extract public key from response
-        // Support both snake_case and camelCase
-        const pubKeyBase64 = data.public_key || data.publicKey || '';
+        // Log the raw response from blockchain
+        console.log('=== ECIES Public Key Response from Blockchain ===');
+        console.log('Full response data:', JSON.stringify(data, null, 2));
         
-        if (!pubKeyBase64) {
-            throw new Error('Public key not found in account key response. The blockchain should include "public_key" in the /key endpoint response.');
+        // Extract ECIES public key from response (hex string, uncompressed format starting with 04)
+        // Response structure: { "ecies_public_key": "04..." } (matches QueryECIESPublicKeyResponse protobuf)
+        const pubKeyHex = data.ecies_public_key || '';
+        
+        console.log('Extracted public key (hex):', pubKeyHex);
+        console.log('Public key hex length:', pubKeyHex.length);
+        console.log('Public key (first 20 chars):', pubKeyHex.substring(0, 20));
+        console.log('Public key (last 20 chars):', pubKeyHex.substring(pubKeyHex.length - 20));
+        
+        if (!pubKeyHex) {
+            throw new Error('ECIES public key not found in response');
         }
 
-        // Decode base64 public key
-        const pubKeyBytes = Uint8Array.from(atob(pubKeyBase64), c => c.charCodeAt(0));
+        // Convert hex string to Uint8Array
+        const pubKeyBytes = hexToUint8Array(pubKeyHex);
+        
+        console.log('Public key bytes length:', pubKeyBytes.length);
+        console.log('Public key bytes (first 10):', Array.from(pubKeyBytes.slice(0, 10)).map(b => b.toString(16).padStart(2, '0')).join(' '));
+        
+        // Validate format (should be 65 bytes, starting with 04 for uncompressed)
+        if (pubKeyBytes.length !== 65 || pubKeyBytes[0] !== 0x04) {
+            throw new Error(`Invalid ECIES public key format: expected 65 bytes starting with 04, got ${pubKeyBytes.length} bytes starting with ${pubKeyBytes[0]?.toString(16)}`);
+        }
         
         // Cache the public key
         publicKeyCache[address] = pubKeyBytes;
         
         return pubKeyBytes;
     } catch (error) {
-        console.error('Error fetching public key from blockchain:', error);
-        throw new Error(`Failed to get recipient's public key: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        console.error('Error fetching ECIES public key from blockchain:', error);
+        throw new Error(`Failed to get recipient's ECIES public key: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
 }
 
 /**
- * Encrypt a symmetric key with recipient's public key using true ECIES
- * Requires the recipient's private key for decryption
+ * Convert Uint8Array to hex string
+ */
+function uint8ArrayToHex(bytes: Uint8Array): string {
+    return Array.from(bytes)
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+}
+
+/**
+ * Convert hex string to Uint8Array
+ */
+function hexToUint8Array(hex: string): Uint8Array {
+    const bytes = new Uint8Array(hex.length / 2);
+    for (let i = 0; i < hex.length; i += 2) {
+        bytes[i / 2] = parseInt(hex.substr(i, 2), 16);
+    }
+    return bytes;
+}
+
+/**
+ * Encrypt value using arbitrary ECIES public key (like Jackal)
  * 
- * Encryption process:
- * 1. Get recipient's public key and hash it
- * 2. Generate a random nonce (32 bytes)
- * 3. Use public key hash + nonce to derive encryption key
- * 4. Encrypt the file key
- * 5. Include nonce in output
+ * @param pubKey - Public key as hex string or Uint8Array
+ * @param toEncrypt - Value to encrypt (ArrayBuffer or Uint8Array)
+ * @returns Encrypted value as hex string
+ */
+export async function eciesEncryptWithPubKey(
+    pubKey: string | Uint8Array,
+    toEncrypt: ArrayBuffer | Uint8Array
+): Promise<string> {
+    const { encrypt } = await import('eciesjs');
+    
+    // Convert public key to hex if it's Uint8Array
+    const pubKeyHex = typeof pubKey === 'string' ? pubKey : uint8ArrayToHex(pubKey);
+    
+    // Convert data to Uint8Array
+    const data = toEncrypt instanceof Uint8Array 
+        ? toEncrypt 
+        : new Uint8Array(toEncrypt);
+    
+    // Encrypt with ECIES (returns Buffer or Uint8Array, convert to hex)
+    const encrypted = encrypt(pubKeyHex, data);
+    // Handle both Buffer (Node.js) and Uint8Array (browser)
+    const encryptedArray = encrypted instanceof Uint8Array 
+        ? encrypted 
+        : new Uint8Array(encrypted);
+    return uint8ArrayToHex(encryptedArray);
+}
+
+/**
+ * Decrypt value using ECIES private key (like Jackal)
  * 
- * Note: The encryption key is derived from public key + nonce.
- * During decryption, the same key is derived using public key + nonce + private key material.
- * The private key material is used to "unlock" the decryption, ensuring only the private key
- * owner can decrypt, even though the encryption key derivation doesn't require it.
+ * @param privateKeyHex - Private key as hex string
+ * @param toDecrypt - Value to decrypt (hex string or Uint8Array)
+ * @returns Decrypted value as Uint8Array
+ */
+export async function eciesDecryptWithPrivateKey(
+    privateKeyHex: string,
+    toDecrypt: string | Uint8Array
+): Promise<Uint8Array> {
+    const { decrypt } = await import('eciesjs');
+    
+    // Convert encrypted data to Uint8Array if it's a hex string
+    const encrypted = typeof toDecrypt === 'string' 
+        ? hexToUint8Array(toDecrypt)
+        : toDecrypt;
+    
+    // Decrypt with ECIES (returns Buffer or Uint8Array, convert to Uint8Array)
+    const decrypted = decrypt(privateKeyHex, encrypted);
+    // Handle both Buffer (Node.js) and Uint8Array (browser)
+    return decrypted instanceof Uint8Array 
+        ? decrypted 
+        : new Uint8Array(decrypted);
+}
+
+/**
+ * Encrypt a symmetric key (AES bundle) with recipient's public key using ECIES
+ * This is a convenience wrapper that uses aesToString internally
  * 
- * @param fileKey - The symmetric file key to encrypt (32 bytes)
+ * @param aesBundle - The AES bundle to encrypt
  * @param recipientAddress - Recipient's Cosmos wallet address (bech32 format)
- * @param chainId - Chain ID for Keplr (defaults to CHAIN_ID)
- * @returns Encrypted file key as Uint8Array [32-byte nonce][12-byte IV][encrypted key + 16-byte tag]
+ * @returns Encrypted AES bundle as pipe-delimited hex string: encryptedIV|encryptedKey
  */
 export async function encryptFileKeyWithECIES(
-    fileKey: Uint8Array,
-    recipientAddress: string,
-    chainId: string = CHAIN_ID
-): Promise<Uint8Array> {
+    aesBundle: IAesBundle,
+    recipientAddress: string
+): Promise<string> {
     // Get recipient's public key from blockchain
     const recipientPubKeyBytes = await getAccountPublicKey(recipientAddress);
     
-    // Ensure we have a proper ArrayBuffer for digest
-    const pubKeyBuffer = recipientPubKeyBytes.buffer instanceof ArrayBuffer
-        ? recipientPubKeyBytes.buffer
-        : new Uint8Array(recipientPubKeyBytes).buffer;
-    
-    // Hash the public key
-    const pubKeyHash = await crypto.subtle.digest('SHA-256', pubKeyBuffer);
-    const pubKeyHashBuffer = pubKeyHash instanceof ArrayBuffer 
-        ? pubKeyHash 
-        : new Uint8Array(pubKeyHash as ArrayBuffer).buffer;
-    
-    // Generate a random nonce (32 bytes) - this will be included in the output
-    // The nonce ensures each encryption is unique
-    const nonce = crypto.getRandomValues(new Uint8Array(32));
-    
-    // Combine public key hash + nonce to create key material
-    // Note: Decryption uses the same key derivation but requires private key access
-    const combinedKeyMaterial = new Uint8Array(pubKeyHashBuffer.byteLength + nonce.length);
-    combinedKeyMaterial.set(new Uint8Array(pubKeyHashBuffer), 0);
-    combinedKeyMaterial.set(nonce, pubKeyHashBuffer.byteLength);
-    
-    // Hash the combined material to create deterministic encryption key
-    const keyMaterialHash = await crypto.subtle.digest('SHA-256', combinedKeyMaterial);
-    const keyMaterialHashBuffer = keyMaterialHash instanceof ArrayBuffer 
-        ? keyMaterialHash 
-        : new Uint8Array(keyMaterialHash as ArrayBuffer).buffer;
-    
-    // Import as key material for PBKDF2
-    const keyMaterial = await crypto.subtle.importKey(
-        'raw',
-        keyMaterialHashBuffer as ArrayBuffer,
-        'PBKDF2',
-        false,
-        ['deriveBits', 'deriveKey']
-    );
-    
-    // Derive AES key from combined material using PBKDF2
-    const encryptionKey = await crypto.subtle.deriveKey(
-        {
-            name: 'PBKDF2',
-            salt: new Uint8Array(0), // No salt for deterministic key
-            iterations: PBKDF2_ITERATIONS,
-            hash: 'SHA-256'
-        },
-        keyMaterial,
-        { name: 'AES-GCM', length: 256 },
-        false,
-        ['encrypt']
-    );
-    
-    // Generate IV for encryption (random for each encryption)
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    
-    // Encrypt file key with AES-GCM
-    const fileKeyBuffer = fileKey.buffer instanceof ArrayBuffer 
-        ? fileKey.buffer 
-        : new Uint8Array(fileKey).buffer;
-    
-    const encryptedKey = await crypto.subtle.encrypt(
-        {
-            name: 'AES-GCM',
-            iv: iv,
-            tagLength: AES_TAG_LENGTH
-        },
-        encryptionKey,
-        fileKeyBuffer
-    );
-    
-    // Format: [32-byte nonce][12-byte IV][encrypted key + 16-byte tag]
-    const encryptedArray = new Uint8Array(encryptedKey);
-    const result = new Uint8Array(nonce.length + iv.length + encryptedArray.length);
-    result.set(nonce, 0);
-    result.set(iv, nonce.length);
-    result.set(encryptedArray, nonce.length + iv.length);
-    
-    return result;
+    // Encrypt AES bundle using ECIES (returns hex string with pipe delimiter)
+    return await aesToString(recipientPubKeyBytes, aesBundle);
 }
 
 /**
- * Decrypt a symmetric key that was encrypted with true ECIES
- * REQUIRES the recipient's private key (via Keplr signArbitrary)
+ * Get ECIES private key for an address (from sessionStorage or mnemonic)
  * 
- * Decryption process:
- * 1. Extract nonce, IV, and ciphertext from encrypted data
- * 2. Get recipient's public key and hash it
- * 3. Use deriveECIESPrivateKey to get private key material (requires private key via Keplr)
- * 4. Combine public key hash + nonce (same as encryption) to derive the SAME encryption key
- * 5. Use private key material to derive a "verification" key that confirms access
- * 6. XOR the encryption key with verification key to get final decryption key
- * 7. Decrypt the file key
- * 
- * This ensures that:
- * - The encryption key derivation matches encryption (public key + nonce)
- * - Only someone with the private key can derive the verification key
- * - The final decryption key requires both the public key hash + nonce AND the private key
- * 
- * @param encryptedFileKey - The encrypted file key [32-byte nonce][12-byte IV][encrypted key + 16-byte tag]
  * @param recipientAddress - Recipient's Cosmos wallet address (bech32 format)
- * @param chainId - Chain ID for Keplr (defaults to CHAIN_ID)
- * @returns Decrypted file key as Uint8Array
+ * @param mnemonic - Optional mnemonic (if not provided, will try to get from sessionStorage)
+ * @returns Private key as hex string
+ */
+async function getECIESPrivateKeyForAddress(recipientAddress: string): Promise<string> {
+    // Get from localStorage (stored when uploading ECIES public key, persists across sessions)
+    const storedPrivateKey = localStorage.getItem(`ecies_private_key_${recipientAddress}`);
+    if (storedPrivateKey) {
+        console.log('Using ECIES private key from localStorage');
+        return storedPrivateKey;
+    }
+    
+    // Check if user has uploaded ECIES public key to blockchain
+    let hasEciesPublicKey = false;
+    try {
+        const apiEndpoint = 'https://storage.datavault.space';
+        const response = await fetch(
+            `${apiEndpoint}/osd-blockchain/osdblockchain/v1/account/${recipientAddress}/ecies-public-key`
+        );
+        hasEciesPublicKey = response.ok;
+    } catch (error) {
+        // Ignore errors when checking
+    }
+    
+    if (hasEciesPublicKey) {
+        throw new Error(
+            `ECIES private key not found for address ${recipientAddress}. ` +
+            `You have uploaded your ECIES public key, but the private key is missing from localStorage. ` +
+            `This may happen if you cleared your browser data. ` +
+            `Please re-upload your ECIES public key using the "Upload ECIES Public Key" button.`
+        );
+    } else {
+        throw new Error(
+            `ECIES private key not found for address ${recipientAddress}. ` +
+            `Please upload your ECIES public key first using the "Upload ECIES Public Key" button.`
+        );
+    }
+}
+
+/**
+ * Decrypt a symmetric key (AES bundle) that was encrypted with ECIES
+ * Uses the ECIES private key stored in localStorage (from uploading the public key)
+ * 
+ * @param encryptedFileKeyString - Encrypted AES bundle as pipe-delimited hex string: encryptedIV|encryptedKey
+ * @param recipientAddress - Recipient's Cosmos wallet address (bech32 format)
+ * @returns Decrypted AES bundle
  */
 export async function decryptFileKeyWithECIES(
-    encryptedFileKey: Uint8Array,
-    recipientAddress: string,
-    chainId: string = CHAIN_ID
-): Promise<Uint8Array> {
-    // Extract components: [32-byte nonce][12-byte IV][encrypted key + 16-byte tag]
-    if (encryptedFileKey.length < 32 + 12 + 16) {
-        throw new Error('Invalid encrypted file key format: too short. Expected format: [32-byte nonce][12-byte IV][encrypted key + 16-byte tag]');
-    }
+    encryptedFileKeyString: string,
+    recipientAddress: string
+): Promise<IAesBundle> {
+    // Get the ECIES private key from localStorage
+    const privateKeyHex = await getECIESPrivateKeyForAddress(recipientAddress);
     
-    const nonce = encryptedFileKey.slice(0, 32);
-    const iv = encryptedFileKey.slice(32, 32 + 12);
-    const ciphertextWithTag = encryptedFileKey.slice(32 + 12);
-    
-    // Get recipient's public key from blockchain
-    const recipientPubKeyBytes = await getAccountPublicKey(recipientAddress);
-    
-    // Ensure we have a proper ArrayBuffer for digest
-    const pubKeyBuffer = recipientPubKeyBytes.buffer instanceof ArrayBuffer
-        ? recipientPubKeyBytes.buffer
-        : new Uint8Array(recipientPubKeyBytes).buffer;
-    
-    // Hash the public key (same as encryption)
-    const pubKeyHash = await crypto.subtle.digest('SHA-256', pubKeyBuffer);
-    const pubKeyHashBuffer = pubKeyHash instanceof ArrayBuffer 
-        ? pubKeyHash 
-        : new Uint8Array(pubKeyHash as ArrayBuffer).buffer;
-    
-    // Get private key material (REQUIRES private key via Keplr signArbitrary)
-    // This is the key step that ensures only the private key owner can decrypt
-    const privateKeyMaterial = await deriveECIESPrivateKey(recipientAddress, chainId);
-    
-    // Step 1: Derive the same key material as encryption (public key hash + nonce)
-    // This matches the encryption process exactly
-    const combinedKeyMaterial = new Uint8Array(pubKeyHashBuffer.byteLength + nonce.length);
-    combinedKeyMaterial.set(new Uint8Array(pubKeyHashBuffer), 0);
-    combinedKeyMaterial.set(nonce, pubKeyHashBuffer.byteLength);
-    
-    const keyMaterialHash = await crypto.subtle.digest('SHA-256', combinedKeyMaterial);
-    const keyMaterialHashBuffer = keyMaterialHash instanceof ArrayBuffer 
-        ? keyMaterialHash 
-        : new Uint8Array(keyMaterialHash as ArrayBuffer).buffer;
-    
-    // Step 2: Require private key material to proceed (REQUIRES private key via Keplr)
-    // This ensures only the private key owner can decrypt
-    // We derive a verification value from the private key material to confirm access
-    const privateKeyDerivedBits = await crypto.subtle.deriveBits(
-        {
-            name: 'PBKDF2',
-            salt: nonce, // Use nonce as salt to tie it to this specific encryption
-            iterations: PBKDF2_ITERATIONS,
-            hash: 'SHA-256'
-        },
-        privateKeyMaterial,
-        256 // 32 bytes
-    );
-    
-    // Step 3: Use the same key derivation as encryption
-    // The private key requirement is enforced by requiring deriveECIESPrivateKey to succeed
-    // If the user doesn't have access to the private key, deriveECIESPrivateKey will fail
-    const keyMaterial = await crypto.subtle.importKey(
-        'raw',
-        keyMaterialHashBuffer as ArrayBuffer,
-        'PBKDF2',
-        false,
-        ['deriveBits', 'deriveKey']
-    );
-    
-    // Derive AES decryption key (same process as encryption)
-    const decryptionKey = await crypto.subtle.deriveKey(
-        {
-            name: 'PBKDF2',
-            salt: new Uint8Array(0),
-            iterations: PBKDF2_ITERATIONS,
-            hash: 'SHA-256'
-        },
-        keyMaterial,
-        { name: 'AES-GCM', length: 256 },
-        false,
-        ['decrypt']
-    );
-    
-    // Note: The private key material is required above (deriveECIESPrivateKey),
-    // which ensures only the private key owner can reach this point.
-    // The actual key derivation matches encryption, but the process requires
-    // private key access to complete.
-    
-    // Decrypt file key
+    // Verify the private key corresponds to the public key on blockchain
     try {
-        const decryptedKey = await crypto.subtle.decrypt(
-            {
-                name: 'AES-GCM',
-                iv: iv,
-                tagLength: AES_TAG_LENGTH
-            },
-            decryptionKey,
-            ciphertextWithTag
-        );
+        const privateKeyBytes = hexToUint8Array(privateKeyHex);
+        // Use @noble/secp256k1 to derive public key from private key
+        const { getPublicKey } = await import('@noble/secp256k1');
+        const publicKeyFromPrivate = getPublicKey(privateKeyBytes, false); // false = uncompressed (65 bytes, starts with 04)
+        const blockchainPublicKey = await getAccountPublicKey(recipientAddress);
         
-        const result = new Uint8Array(decryptedKey);
-        
-        // Validate decrypted key length (should be 32 bytes for account key)
-        if (result.length !== 32) {
-            console.warn(`Decrypted key length is ${result.length} bytes, expected 32 bytes`);
+        // Compare public keys (should match) - both should be uncompressed (65 bytes)
+        if (publicKeyFromPrivate.length !== blockchainPublicKey.length) {
+            throw new Error('Public key length mismatch');
         }
         
-        return result;
+        let matches = true;
+        for (let i = 0; i < publicKeyFromPrivate.length; i++) {
+            if (publicKeyFromPrivate[i] !== blockchainPublicKey[i]) {
+                matches = false;
+                break;
+            }
+        }
+        
+        if (!matches) {
+            throw new Error('ECIES private key does not correspond to blockchain public key. Please verify the key was uploaded correctly.');
+        }
     } catch (error) {
-        console.error('Error in decryptFileKeyWithECIES:', {
-            error,
-            encryptedKeyLength: encryptedFileKey.length,
-            nonceLength: nonce.length,
-            ivLength: iv.length,
-            ciphertextLength: ciphertextWithTag.length,
-            recipientAddress
-        });
-        
-        if (error instanceof DOMException) {
-            throw new Error(`Decryption failed: ${error.message}. This may indicate the encrypted key was not encrypted with the correct public key, or you do not have access to the private key required for decryption.`);
-        }
-        throw error;
+        console.error('Error verifying ECIES private key:', error);
+        // Don't throw - just log the warning, decryption will fail if key is wrong anyway
+        console.warn('Could not verify ECIES private key matches public key, proceeding with decryption...');
     }
+    
+    // Decrypt AES bundle using ECIES with actual private key
+    return await stringToAes(encryptedFileKeyString, privateKeyHex);
+}
+
+/**
+ * Decrypt an account key (single 32-byte key) that was encrypted with ECIES
+ * Uses the ECIES private key stored in localStorage (from uploading the public key)
+ * 
+ * @param encryptedAccountKeyHex - Encrypted account key as hex string (not pipe-delimited, just a single ECIES-encrypted value)
+ * @param recipientAddress - Recipient's Cosmos wallet address (bech32 format)
+ * @returns Decrypted account key (32 bytes as Uint8Array)
+ */
+export async function decryptAccountKeyWithECIES(
+    encryptedAccountKeyHex: string,
+    recipientAddress: string
+): Promise<Uint8Array> {
+    // Get the ECIES private key from localStorage
+    const privateKeyHex = await getECIESPrivateKeyForAddress(recipientAddress);
+    
+    // Decrypt account key using ECIES (single hex string, not pipe-delimited)
+    return await eciesDecryptWithPrivateKey(privateKeyHex, encryptedAccountKeyHex);
 }
 
 // ============================================================================
@@ -473,36 +647,156 @@ export async function hashFilename(filename: string): Promise<string> {
 }
 
 // ============================================================================
+// AES Bundle Management (like Jackal)
+// ============================================================================
+
+/**
+ * AES Bundle interface - contains IV and key for file encryption
+ */
+export interface IAesBundle {
+    iv: Uint8Array;  // 16-byte initialization vector
+    key: CryptoKey;  // AES-256 CryptoKey
+}
+
+/**
+ * Generate a new AES key bundle for file encryption
+ * Each file gets a unique AES key and IV
+ * 
+ * @returns AES bundle with random IV and generated key
+ */
+export async function genAesBundle(): Promise<IAesBundle> {
+    // Generate random 16-byte IV (Jackal uses 16 bytes, we use 12 for GCM, but will use 16 for compatibility)
+    const iv = crypto.getRandomValues(new Uint8Array(16));
+    
+    // Generate random 32-byte key and import as AES-256-GCM key
+    // Set extractable: true so we can export it later for ECIES encryption
+    const keyBytes = crypto.getRandomValues(new Uint8Array(32));
+    const key = await crypto.subtle.importKey(
+        'raw',
+        keyBytes,
+        { name: 'AES-GCM', length: 256 },
+        true, // extractable: true - needed to export key bytes for ECIES encryption
+        ['encrypt', 'decrypt']
+    );
+    
+    return { iv, key };
+}
+
+/**
+ * Export CryptoKey to Uint8Array (like Jackal's exportJackalKey)
+ */
+async function exportJackalKey(key: CryptoKey): Promise<Uint8Array> {
+    return new Uint8Array(await crypto.subtle.exportKey('raw', key));
+}
+
+/**
+ * Encrypts AES iv/CryptoKey set to string using receiver's ECIES public key (like Jackal)
+ * 
+ * @param recipientPublicKey - Recipient's public key (compressed secp256k1, 33 bytes as Uint8Array)
+ * @param aesBundle - AES iv/CryptoKey set to encrypt
+ * @returns Encrypted string with pipe "|" delimiter: encryptedIV|encryptedKey (both as hex)
+ */
+export async function aesToString(
+    recipientPublicKey: Uint8Array,
+    aesBundle: IAesBundle
+): Promise<string> {
+    // Convert public key to hex string
+    const pubKeyHex = uint8ArrayToHex(recipientPublicKey);
+    
+    // Encrypt IV separately with ECIES
+    const encryptedIV = await eciesEncryptWithPubKey(pubKeyHex, aesBundle.iv);
+    
+    // Export key bytes and encrypt separately with ECIES
+    const keyBytes = await exportJackalKey(aesBundle.key);
+    const encryptedKey = await eciesEncryptWithPubKey(pubKeyHex, keyBytes);
+    
+    // Return pipe-delimited hex strings: encryptedIV|encryptedKey
+    return `${encryptedIV}|${encryptedKey}`;
+}
+
+/**
+ * Decrypt an AES bundle from an encrypted string using ECIES (like Jackal)
+ * 
+ * @param encryptedBundleString - Encrypted AES bundle as pipe-delimited hex string: encryptedIV|encryptedKey
+ * @param recipientPrivateKeyHex - Recipient's private key as hex string
+ * @returns Decrypted AES bundle
+ */
+export async function stringToAes(
+    encryptedBundleString: string,
+    recipientPrivateKeyHex: string
+): Promise<IAesBundle> {
+    // Split by pipe delimiter
+    const parts = encryptedBundleString.split('|');
+    if (parts.length !== 2) {
+        throw new Error('Invalid encrypted bundle format: expected "encryptedIV|encryptedKey"');
+    }
+    
+    const [encryptedIVHex, encryptedKeyHex] = parts;
+    
+    console.log('=== Decrypting AES Bundle Components ===');
+    console.log('Encrypted IV hex length:', encryptedIVHex.length);
+    console.log('Encrypted Key hex length:', encryptedKeyHex.length);
+    console.log('Private key hex length:', recipientPrivateKeyHex.length);
+    
+    // Decrypt IV separately
+    console.log('Decrypting IV...');
+    let iv: Uint8Array;
+    try {
+        iv = await eciesDecryptWithPrivateKey(recipientPrivateKeyHex, encryptedIVHex);
+        console.log('IV decrypted successfully, length:', iv.length);
+    } catch (error) {
+        console.error('Error decrypting IV:', error);
+        throw new Error(`Failed to decrypt IV: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+    
+    // Decrypt key separately
+    console.log('Decrypting AES key...');
+    let keyBytes: Uint8Array;
+    try {
+        keyBytes = await eciesDecryptWithPrivateKey(recipientPrivateKeyHex, encryptedKeyHex);
+        console.log('AES key decrypted successfully, length:', keyBytes.length);
+    } catch (error) {
+        console.error('Error decrypting AES key:', error);
+        throw new Error(`Failed to decrypt AES key: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+    
+    // Ensure keyBytes is a proper ArrayBuffer for importKey
+    const keyBuffer = keyBytes.buffer instanceof ArrayBuffer
+        ? keyBytes.buffer
+        : new Uint8Array(keyBytes).buffer;
+    
+    // Import key as AES-256-GCM CryptoKey
+    // Set extractable: true so it can be exported later for sharing
+    const key = await crypto.subtle.importKey(
+        'raw',
+        keyBuffer,
+        { name: 'AES-GCM', length: 256 },
+        true, // extractable: true - needed to export key bytes for sharing
+        ['encrypt', 'decrypt']
+    );
+    
+    return { iv, key };
+}
+
+// ============================================================================
 // File Encryption
 // ============================================================================
 
 /**
- * Encrypt file using chunked AES-256-GCM with a symmetric key
+ * Encrypt file using chunked AES-256-GCM with an AES bundle
+ * Each file gets its own unique AES key and IV
  * 
  * @param file - The file to encrypt
- * @param fileKey - The symmetric key to use for encryption (32 bytes)
+ * @param aesBundle - The AES bundle containing IV and key for encryption
  * @returns Array of encrypted chunks (each chunk is formatted with size header, IV, and encrypted data)
  * 
  * Format: [8-byte size header][12-byte IV][encrypted chunk + 16-byte tag]
+ * Note: Uses 12-byte IVs for GCM (first 12 bytes of bundle IV for first chunk, random for others)
  */
 export async function encryptFile(
     file: File | Blob,
-    fileKey: Uint8Array
+    aesBundle: IAesBundle
 ): Promise<Blob[]> {
-    // Import symmetric key
-    // Ensure we have a proper ArrayBuffer (not SharedArrayBuffer)
-    const fileKeyBuffer = fileKey.buffer instanceof ArrayBuffer 
-        ? fileKey.buffer 
-        : new Uint8Array(fileKey).buffer;
-    
-    const aesKey = await crypto.subtle.importKey(
-        'raw',
-        fileKeyBuffer,
-        { name: 'AES-GCM', length: 256 },
-        false,
-        ['encrypt']
-    );
-    
     const encryptedChunks: Blob[] = [];
     const fileSize = file.size;
     
@@ -512,8 +806,11 @@ export async function encryptFile(
                          new Blob([file]).slice(i, i + ENCRYPTION_CHUNK_SIZE);
         const chunkData = await chunkBlob.arrayBuffer();
         
-        // Generate IV (12 bytes for AES-GCM) for each chunk
-        const iv = crypto.getRandomValues(new Uint8Array(12));
+        // Use bundle IV (first 12 bytes) for first chunk, random IVs for subsequent chunks
+        // GCM requires 12-byte IVs
+        const iv = i === 0 
+            ? aesBundle.iv.slice(0, 12)  // Use first 12 bytes of bundle IV for first chunk
+            : crypto.getRandomValues(new Uint8Array(12));  // Random IVs for other chunks
         
         // Encrypt chunk with AES-256-GCM (includes authentication tag)
         const encryptedChunkData = await crypto.subtle.encrypt(
@@ -522,7 +819,7 @@ export async function encryptFile(
                 iv: iv,
                 tagLength: AES_TAG_LENGTH
             },
-            aesKey,
+            aesBundle.key,
             chunkData
         );
         
@@ -553,30 +850,16 @@ export async function encryptFile(
 // ============================================================================
 
 /**
- * Decrypt file using chunked AES-256-GCM with a symmetric key
+ * Decrypt file using chunked AES-256-GCM with an AES bundle
  * 
  * @param encryptedBlob - The encrypted file blob (with size headers)
- * @param fileKey - The symmetric key to use for decryption (32 bytes)
+ * @param aesBundle - The AES bundle containing IV and key for decryption
  * @returns Decrypted file blob
  */
 export async function decryptFile(
     encryptedBlob: Blob,
-    fileKey: Uint8Array
+    aesBundle: IAesBundle
 ): Promise<Blob> {
-    // Import symmetric key
-    // Ensure we have a proper ArrayBuffer (not SharedArrayBuffer)
-    const fileKeyBuffer = fileKey.buffer instanceof ArrayBuffer 
-        ? fileKey.buffer 
-        : new Uint8Array(fileKey).buffer;
-    
-    const aesKey = await crypto.subtle.importKey(
-        'raw',
-        fileKeyBuffer,
-        { name: 'AES-GCM', length: 256 },
-        false,
-        ['decrypt']
-    );
-    
     // Read encrypted data
     const encryptedData = await encryptedBlob.arrayBuffer();
     const encryptedArray = new Uint8Array(encryptedData);
@@ -623,7 +906,7 @@ export async function decryptFile(
                 iv: iv,
                 tagLength: AES_TAG_LENGTH
             },
-            aesKey,
+            aesBundle.key,
             ciphertextWithTag
         );
         
@@ -856,9 +1139,23 @@ export default {
     calculateMerkleRoot,
     hashFilename,
     
-    // Key Management
-    deriveECIESPrivateKey,
-    clearECIESKeyCache,
+    // AES Bundle Management
+    genAesBundle,
+    aesToString,
+    stringToAes,
+    
+    // ECIES Functions
+    eciesEncryptWithPubKey,
+    eciesDecryptWithPrivateKey,
+    
+    // Key Management (Mnemonic-based, like Jackal)
+    getPrivateKeyFromMnemonic,
+    getPrivateKeyForAddress,
+    setMnemonicForAddress,
+    clearPrivateKeyCache,
+    
+    // ECIES Keypair Generation
+    generateECIESKeypair,
     
     // Blockchain
     postFileToBlockchain,

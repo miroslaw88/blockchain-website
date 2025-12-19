@@ -75,6 +75,18 @@ export interface QueryAccountKeyResponse {
   publicKey: string;
 }
 
+/** QueryECIESPublicKeyRequest is request type for the Query/ECIESPublicKey RPC method. */
+export interface QueryECIESPublicKeyRequest {
+  /** address is the account address to query the ECIES public key for. */
+  address: string;
+}
+
+/** QueryECIESPublicKeyResponse is response type for the Query/ECIESPublicKey RPC method. */
+export interface QueryECIESPublicKeyResponse {
+  /** ecies_public_key is the hex-encoded ECIES public key. */
+  eciesPublicKey: string;
+}
+
 /** QueryFileRequest is request type for the Query/File RPC method. */
 export interface QueryFileRequest {
   /** merkle_root is the Merkle root hash of the file to query. */
@@ -821,6 +833,122 @@ export const QueryAccountKeyResponse: MessageFns<QueryAccountKeyResponse> = {
     const message = createBaseQueryAccountKeyResponse();
     message.encryptedAccountKey = object.encryptedAccountKey ?? "";
     message.publicKey = object.publicKey ?? "";
+    return message;
+  },
+};
+
+function createBaseQueryECIESPublicKeyRequest(): QueryECIESPublicKeyRequest {
+  return { address: "" };
+}
+
+export const QueryECIESPublicKeyRequest: MessageFns<QueryECIESPublicKeyRequest> = {
+  encode(message: QueryECIESPublicKeyRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.address !== "") {
+      writer.uint32(10).string(message.address);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): QueryECIESPublicKeyRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseQueryECIESPublicKeyRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.address = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): QueryECIESPublicKeyRequest {
+    return { address: isSet(object.address) ? globalThis.String(object.address) : "" };
+  },
+
+  toJSON(message: QueryECIESPublicKeyRequest): unknown {
+    const obj: any = {};
+    if (message.address !== "") {
+      obj.address = message.address;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<QueryECIESPublicKeyRequest>, I>>(base?: I): QueryECIESPublicKeyRequest {
+    return QueryECIESPublicKeyRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<QueryECIESPublicKeyRequest>, I>>(object: I): QueryECIESPublicKeyRequest {
+    const message = createBaseQueryECIESPublicKeyRequest();
+    message.address = object.address ?? "";
+    return message;
+  },
+};
+
+function createBaseQueryECIESPublicKeyResponse(): QueryECIESPublicKeyResponse {
+  return { eciesPublicKey: "" };
+}
+
+export const QueryECIESPublicKeyResponse: MessageFns<QueryECIESPublicKeyResponse> = {
+  encode(message: QueryECIESPublicKeyResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.eciesPublicKey !== "") {
+      writer.uint32(10).string(message.eciesPublicKey);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): QueryECIESPublicKeyResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseQueryECIESPublicKeyResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.eciesPublicKey = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): QueryECIESPublicKeyResponse {
+    return { eciesPublicKey: isSet(object.eciesPublicKey) ? globalThis.String(object.eciesPublicKey) : "" };
+  },
+
+  toJSON(message: QueryECIESPublicKeyResponse): unknown {
+    const obj: any = {};
+    if (message.eciesPublicKey !== "") {
+      obj.eciesPublicKey = message.eciesPublicKey;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<QueryECIESPublicKeyResponse>, I>>(base?: I): QueryECIESPublicKeyResponse {
+    return QueryECIESPublicKeyResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<QueryECIESPublicKeyResponse>, I>>(object: I): QueryECIESPublicKeyResponse {
+    const message = createBaseQueryECIESPublicKeyResponse();
+    message.eciesPublicKey = object.eciesPublicKey ?? "";
     return message;
   },
 };
@@ -2703,6 +2831,8 @@ export interface Query {
   AccountStorage(request: QueryAccountStorageRequest): Promise<QueryAccountStorageResponse>;
   /** AccountKey returns the encrypted symmetric key for an address. */
   AccountKey(request: QueryAccountKeyRequest): Promise<QueryAccountKeyResponse>;
+  /** ECIESPublicKey returns the ECIES public key for an address. */
+  ECIESPublicKey(request: QueryECIESPublicKeyRequest): Promise<QueryECIESPublicKeyResponse>;
   /** File queries file metadata by Merkle root hash. */
   File(request: QueryFileRequest): Promise<QueryFileResponse>;
   /** FilesByProvider queries all files stored by a provider. */
@@ -2751,6 +2881,7 @@ export class QueryClientImpl implements Query {
     this.Params = this.Params.bind(this);
     this.AccountStorage = this.AccountStorage.bind(this);
     this.AccountKey = this.AccountKey.bind(this);
+    this.ECIESPublicKey = this.ECIESPublicKey.bind(this);
     this.File = this.File.bind(this);
     this.FilesByProvider = this.FilesByProvider.bind(this);
     this.IndexerRange = this.IndexerRange.bind(this);
@@ -2781,6 +2912,12 @@ export class QueryClientImpl implements Query {
     const data = QueryAccountKeyRequest.encode(request).finish();
     const promise = this.rpc.request(this.service, "AccountKey", data);
     return promise.then((data) => QueryAccountKeyResponse.decode(new BinaryReader(data)));
+  }
+
+  ECIESPublicKey(request: QueryECIESPublicKeyRequest): Promise<QueryECIESPublicKeyResponse> {
+    const data = QueryECIESPublicKeyRequest.encode(request).finish();
+    const promise = this.rpc.request(this.service, "ECIESPublicKey", data);
+    return promise.then((data) => QueryECIESPublicKeyResponse.decode(new BinaryReader(data)));
   }
 
   File(request: QueryFileRequest): Promise<QueryFileResponse> {
