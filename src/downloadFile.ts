@@ -510,11 +510,7 @@ export async function downloadSharedFile(
             console.log(`Downloaded and combined ${totalChunksHeader || 'unknown'} chunks: ${encryptedBlob.size} bytes`);
             await finishDownload(encryptedBlob, fileAesBundle, responseFileName);
         } else {
-            // Fallback: treat as single blob
-            console.warn('Response is not multipart, treating as single blob');
-            const encryptedBlob = await encryptedResponse.blob();
-            console.log(`Downloaded encrypted file: ${encryptedBlob.size} bytes`);
-            await finishDownload(encryptedBlob, fileAesBundle, responseFileName);
+            throw new Error('Expected multipart/byteranges response but received different content type. The storage provider must return files in multipart format.');
         }
         
     } catch (error) {
@@ -693,11 +689,7 @@ export async function downloadFile(fileMetadata: any, walletAddress: string, $bu
             console.log(`Downloaded and combined ${totalChunksHeader || 'unknown'} chunks: ${encryptedBlob.size} bytes`);
             await finishDownload(encryptedBlob, fileAesBundle, responseFileName);
         } else {
-            // Fallback: treat as single blob
-            console.warn('Response is not multipart, treating as single blob');
-            const encryptedBlob = await encryptedResponse.blob();
-            console.log(`Downloaded encrypted file: ${encryptedBlob.size} bytes`);
-            await finishDownload(encryptedBlob, fileAesBundle, responseFileName);
+            throw new Error('Expected multipart/byteranges response but received different content type. The storage provider must return files in multipart format.');
         }
         
     } catch (error) {

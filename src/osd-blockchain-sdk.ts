@@ -806,7 +806,7 @@ export interface IAesBundle {
  * @returns AES bundle with random IV and generated key
  */
 export async function genAesBundle(): Promise<IAesBundle> {
-    // Generate random 16-byte IV (Jackal uses 16 bytes, we use 12 for GCM, but will use 16 for compatibility)
+    // Generate random 16-byte IV
     const iv = crypto.getRandomValues(new Uint8Array(16));
     
     // Generate random 32-byte key and import as AES-256-GCM key
@@ -824,14 +824,14 @@ export async function genAesBundle(): Promise<IAesBundle> {
 }
 
 /**
- * Export CryptoKey to Uint8Array (like Jackal's exportJackalKey)
+ * Export CryptoKey to Uint8Array
  */
 async function exportJackalKey(key: CryptoKey): Promise<Uint8Array> {
     return new Uint8Array(await crypto.subtle.exportKey('raw', key));
 }
 
 /**
- * Encrypts AES iv/CryptoKey set to string using receiver's ECIES public key (like Jackal)
+ * Encrypts AES iv/CryptoKey set to string using receiver's ECIES public key
  * 
  * @param recipientPublicKey - Recipient's public key (compressed secp256k1, 33 bytes as Uint8Array)
  * @param aesBundle - AES iv/CryptoKey set to encrypt
@@ -856,7 +856,7 @@ export async function aesToString(
 }
 
 /**
- * Decrypt an AES bundle from an encrypted string using ECIES (like Jackal)
+ * Decrypt an AES bundle from an encrypted string using ECIES
  * 
  * @param encryptedBundleString - Encrypted AES bundle as pipe-delimited hex string: encryptedIV|encryptedKey
  * @param recipientPrivateKeyHex - Recipient's private key as hex string
@@ -1103,26 +1103,11 @@ export async function postFileToBlockchain(
     const { Registry } = await import('@cosmjs/proto-signing');
     const { SigningStargateClient, defaultRegistryTypes } = await import('@cosmjs/stargate');
     
-    // Note: These imports assume you have generated protobuf types
-    // You'll need to adjust these imports based on your project structure
-    // For now, we'll use a generic approach that can be customized
-    let MsgPostFile: any;
-    let StorageProvider: any;
-    
-    try {
-        // Try to import generated types (adjust path as needed)
-        const txModule = await import('./generated/osdblockchain/osdblockchain/v1/tx');
-        const providerModule = await import('./generated/osdblockchain/osdblockchain/v1/storage_provider');
-        MsgPostFile = txModule.MsgPostFile;
-        StorageProvider = providerModule.StorageProvider;
-    } catch (error) {
-        // If generated types aren't available, provide instructions
-        throw new Error(
-            'Generated protobuf types not found. ' +
-            'Please generate types from your .proto files using protoc or @cosmjs/proto-signing. ' +
-            'Expected: ./generated/osdblockchain/osdblockchain/v1/tx and ./generated/osdblockchain/osdblockchain/v1/storage_provider'
-        );
-    }
+    // Import generated protobuf types
+    const txModule = await import('./generated/osdblockchain/osdblockchain/v1/tx');
+    const providerModule = await import('./generated/osdblockchain/osdblockchain/v1/storage_provider');
+    const MsgPostFile = txModule.MsgPostFile;
+    const StorageProvider = providerModule.StorageProvider;
 
     // Create a registry with your custom message type
     const registry = new Registry([

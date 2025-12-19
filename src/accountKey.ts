@@ -81,17 +81,6 @@ export async function getAccountKey(walletAddress: string): Promise<Uint8Array> 
         return accountKey;
     } catch (error) {
         console.error('Error decrypting account key:', error);
-        if (error instanceof Error && error.message.includes('old format')) {
-            // Re-throw the user-friendly error about old format
-            throw error;
-        }
-        if (error instanceof DOMException) {
-            throw new Error(
-                `Decryption failed: ${error.message}. ` +
-                `This may indicate the account key was encrypted with the old format (no nonce). ` +
-                `Please regenerate your account key using the "Generate Asymmetric Key" button.`
-            );
-        }
         throw error;
     }
 }

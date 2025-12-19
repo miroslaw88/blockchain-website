@@ -50,22 +50,13 @@ export async function uploadECIESPublicKey(): Promise<UploadECIESPublicKeyResult
         const { Registry } = await import('@cosmjs/proto-signing');
         const { SigningStargateClient, defaultRegistryTypes } = await import('@cosmjs/stargate');
         
-        // Try to import MsgPostKey, if it doesn't exist, we'll create a generic message
-        let MsgPostKey: any;
-        try {
-            const txModule = await import('./generated/osdblockchain/osdblockchain/v1/tx');
-            MsgPostKey = txModule.MsgPostKey;
-        } catch (error) {
-            // If MsgPostKey doesn't exist in generated types, create a generic message structure
-            console.warn('MsgPostKey not found in generated types, using generic message structure');
-            MsgPostKey = null;
-        }
+        // Import MsgPostKey from generated types
+        const txModule = await import('./generated/osdblockchain/osdblockchain/v1/tx');
+        const MsgPostKey = txModule.MsgPostKey;
 
         // Register message type
         const registryTypes: Array<[string, any]> = [...defaultRegistryTypes];
-        if (MsgPostKey) {
-            registryTypes.push(['/osdblockchain.osdblockchain.v1.MsgPostKey', MsgPostKey as any]);
-        }
+        registryTypes.push(['/osdblockchain.osdblockchain.v1.MsgPostKey', MsgPostKey as any]);
         const registry = new Registry(registryTypes);
 
         // Connect to RPC
@@ -82,10 +73,6 @@ export async function uploadECIESPublicKey(): Promise<UploadECIESPublicKeyResult
 
         // Create message
         // The field name in the generated types is eciesPublicKey (camelCase), not ecies_public_key
-        if (!MsgPostKey) {
-            throw new Error('MsgPostKey not found in generated types. Please regenerate protobuf types.');
-        }
-        
         const msgValue = MsgPostKey.fromPartial({
             owner: userAddress,
             eciesPublicKey: publicKeyHex  // Note: camelCase, not snake_case
@@ -149,11 +136,6 @@ export async function uploadECIESPublicKey(): Promise<UploadECIESPublicKeyResult
     }
 }
 
-// Keep the old function name for backwards compatibility (but it now calls uploadECIESPublicKey)
-export async function generateAccountKey(): Promise<UploadECIESPublicKeyResult> {
-    return uploadECIESPublicKey();
-}
-
 export interface DeleteECIESPublicKeyResult {
     success: boolean;
     transactionHash?: string;
@@ -182,21 +164,13 @@ export async function deleteECIESPublicKey(): Promise<DeleteECIESPublicKeyResult
         const { Registry } = await import('@cosmjs/proto-signing');
         const { SigningStargateClient, defaultRegistryTypes } = await import('@cosmjs/stargate');
         
-        // Try to import MsgDeleteKey
-        let MsgDeleteKey: any;
-        try {
-            const txModule = await import('./generated/osdblockchain/osdblockchain/v1/tx');
-            MsgDeleteKey = txModule.MsgDeleteKey;
-        } catch (error) {
-            console.warn('MsgDeleteKey not found in generated types, using generic message structure');
-            MsgDeleteKey = null;
-        }
+        // Import MsgDeleteKey from generated types
+        const txModule = await import('./generated/osdblockchain/osdblockchain/v1/tx');
+        const MsgDeleteKey = txModule.MsgDeleteKey;
 
         // Register message type
         const registryTypes: Array<[string, any]> = [...defaultRegistryTypes];
-        if (MsgDeleteKey) {
-            registryTypes.push(['/osdblockchain.osdblockchain.v1.MsgDeleteKey', MsgDeleteKey as any]);
-        }
+        registryTypes.push(['/osdblockchain.osdblockchain.v1.MsgDeleteKey', MsgDeleteKey as any]);
         const registry = new Registry(registryTypes);
 
         // Connect to RPC
@@ -212,10 +186,6 @@ export async function deleteECIESPublicKey(): Promise<DeleteECIESPublicKeyResult
         );
 
         // Create message
-        if (!MsgDeleteKey) {
-            throw new Error('MsgDeleteKey not found in generated types. Please regenerate protobuf types.');
-        }
-        
         const msgValue = MsgDeleteKey.fromPartial({
             owner: userAddress
         });

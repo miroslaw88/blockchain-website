@@ -156,9 +156,7 @@ export async function createDirectory(path: string): Promise<CreateDirectoryResu
             }
         }
     } catch (error) {
-        console.warn('Could not extract createdAt from transaction response:', error);
-        // Use current timestamp as fallback
-        createdAt = Math.floor(Date.now() / 1000);
+        throw new Error(`Failed to extract createdAt from transaction response: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
 
     return {

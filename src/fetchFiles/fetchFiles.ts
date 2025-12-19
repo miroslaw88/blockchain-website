@@ -55,24 +55,19 @@ export async function fetchFiles(walletAddress: string, path: string = ''): Prom
         const response = await fetchWithTimeout(apiUrl, 15000);
         
         if (!response.ok) {
-            const errorText = await response.text().catch(() => 'Unknown error');
-            let errorMessage = `HTTP error! status: ${response.status}`;
+            const errorText = await response.text();
+            const errorJson = JSON.parse(errorText);
             
-            // Try to parse error response
-            try {
-                const errorJson = JSON.parse(errorText);
-                if (errorJson.code === 12 || response.status === 501) {
-                    errorMessage = `Not Implemented (code 12): The endpoint may not be implemented or Caddy is not routing correctly.`;
-                    errorMessage += `\n\nTried: ${apiUrl}`;
-                    errorMessage += `\n\nCheck:`;
-                    errorMessage += `\n1. Caddyfile has route: handle_path /osd-blockchain* { reverse_proxy 127.0.0.1:1337 }`;
-                    errorMessage += `\n2. Test directly: curl http://localhost:1337/osd-blockchain/osdblockchain/v1/files/owner/{address}`;
-                    errorMessage += `\n3. Verify blockchain API server implements this endpoint`;
-                } else {
-                    errorMessage = `HTTP error! status: ${response.status}, code: ${errorJson.code || 'N/A'}, message: ${errorJson.message || errorText}`;
-                }
-            } catch {
-                errorMessage = `HTTP error! status: ${response.status}, message: ${errorText}`;
+            let errorMessage: string;
+            if (errorJson.code === 12 || response.status === 501) {
+                errorMessage = `Not Implemented (code 12): The endpoint may not be implemented or Caddy is not routing correctly.`;
+                errorMessage += `\n\nTried: ${apiUrl}`;
+                errorMessage += `\n\nCheck:`;
+                errorMessage += `\n1. Caddyfile has route: handle_path /osd-blockchain* { reverse_proxy 127.0.0.1:1337 }`;
+                errorMessage += `\n2. Test directly: curl http://localhost:1337/osd-blockchain/osdblockchain/v1/files/owner/{address}`;
+                errorMessage += `\n3. Verify blockchain API server implements this endpoint`;
+            } else {
+                errorMessage = `HTTP error! status: ${response.status}, code: ${errorJson.code}, message: ${errorJson.message || errorText}`;
             }
             
             throw new Error(errorMessage);
