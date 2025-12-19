@@ -1,4 +1,4 @@
-// Upload ECIES public key to blockchain
+// Generate ECIES public key to blockchain
 
 import { getKeplr, CHAIN_ID } from './utils';
 import { generateECIESKeypair } from './osd-blockchain-sdk';
@@ -125,7 +125,7 @@ export async function uploadECIESPublicKey(): Promise<UploadECIESPublicKeyResult
 
         // Sign and broadcast
         console.log('Signing and broadcasting transaction...');
-        const result = await signingClient.signAndBroadcast(userAddress, [msg], fee, 'Upload ECIES Public Key');
+        const result = await signingClient.signAndBroadcast(userAddress, [msg], fee, 'Generate ECIES Public Key');
 
         if (result.code === 0) {
             console.log('✅ ECIES public key uploaded successfully!');

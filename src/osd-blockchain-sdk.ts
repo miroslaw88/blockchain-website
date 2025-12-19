@@ -667,7 +667,7 @@ async function getECIESPrivateKeyForAddress(recipientAddress: string): Promise<s
         } else {
             throw new Error(
                 `ECIES public key not found for address ${recipientAddress}. ` +
-                `Please upload your ECIES public key first using the "Upload ECIES Public Key" button.`
+                `Please upload your ECIES public key first using the "Generate ECIES Public Key" button.`
             );
         }
     }
@@ -727,7 +727,7 @@ export async function decryptFileKeyWithECIES(
             console.error('Blockchain byte:', blockchainPublicKey[firstMismatchIndex]?.toString(16));
             throw new Error(
                 `Your ECIES public key on the blockchain was uploaded using a different signature method. ` +
-                `To fix this, please: 1) Click "Delete Public Key" button, then 2) Click "Upload ECIES Public Key" button to re-upload with the correct key. ` +
+                `To fix this, please: 1) Click "Delete Public Key" button, then 2) Click "Generate ECIES Public Key" button to re-upload with the correct key. ` +
                 `This will allow you to decrypt files that are shared with you.`
             );
         }

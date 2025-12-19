@@ -1011,20 +1011,17 @@ export namespace Dashboard {
                     keyInfoHtml = '<span class="text-muted small me-2">Key: Error loading</span>';
                 }
                 
-                // Show Delete button when key exists
+                // Show only Delete button when key exists (don't show Generate button)
                 buttonHtml = `
-                    <button id="deleteKeyBtn" class="btn btn-sm btn-outline-danger me-2">
+                    <button id="deleteKeyBtn" class="btn btn-sm btn-outline-danger">
                         Delete Public Key
-                    </button>
-                    <button id="generateKeyBtn" class="btn btn-sm btn-outline-primary">
-                        Upload ECIES Public Key
                     </button>
                 `;
             } else {
                 // No key - only show Upload button
                 buttonHtml = `
                     <button id="generateKeyBtn" class="btn btn-sm btn-outline-primary">
-                        Upload ECIES Public Key
+                        Generate ECIES Public Key
                     </button>
                 `;
             }
@@ -1035,7 +1032,7 @@ export namespace Dashboard {
             // On error, still show the button
             $keyStatus.html(`
                 <button id="generateKeyBtn" class="btn btn-sm btn-outline-primary">
-                    Upload ECIES Public Key
+                    Generate ECIES Public Key
                 </button>
             `);
         }
@@ -1270,7 +1267,7 @@ export namespace Dashboard {
                 // Refresh the key status display (this will update the button state)
                 await checkAndUpdateAccountKeyStatus(walletAddress);
             } else {
-                showToast(`Failed to upload ECIES public key: ${result.error || 'Unknown error'}`, 'error');
+                showToast(`Failed to generate ECIES public key: ${result.error || 'Unknown error'}`, 'error');
                 // Re-enable button
                 $button.prop('disabled', false);
                 $button.text(originalText);
