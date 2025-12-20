@@ -44,15 +44,29 @@ export async function fetchFiles(walletAddress: string, path: string = ''): Prom
         // Wait for an indexer to become available
         const indexer = await Dashboard.waitForIndexer();
         
-        // Use indexer endpoint: http://{indexer_address}/api/indexer/v1/files/owner/{walletAddress}?path={path}
-        const protocol = indexer.indexer_address.includes('localhost') ? 'http' : 'https';
-        const apiUrl = `${protocol}://${indexer.indexer_address}/api/indexer/v1/files/owner/${walletAddress}?path=${encodedPath}`;
+        // Use indexer endpoint: POST /api/indexer/v1/files/dir
+        const protocol = indexer.indexer_address.includes('localhost') || 
+                       /^\d+\.\d+\.\d+\.\d+/.test(indexer.indexer_address) ||
+                       indexer.indexer_address.startsWith('127.0.0.1')
+            ? 'http'
+            : 'https';
+        const baseUrl = indexer.indexer_address.startsWith('http://') || indexer.indexer_address.startsWith('https://')
+            ? indexer.indexer_address
+            : `${protocol}://${indexer.indexer_address}`;
+        const apiUrl = `${baseUrl}/api/indexer/v1/files/dir`;
         
         console.log('Fetching from indexer:', apiUrl);
         console.log('Path parameter:', normalizedPath);
         
-        // Fetch data with 15 second timeout
-        const response = await fetchWithTimeout(apiUrl, 15000);
+        // Fetch data with 15 second timeout (POST with owner, path, and requester in body)
+        const response = await fetchWithTimeout(apiUrl, 15000, {
+            method: 'POST',
+            body: JSON.stringify({
+                owner: walletAddress,
+                path: normalizedPath,
+                requester: walletAddress
+            })
+        });
         
         if (!response.ok) {
             const errorText = await response.text();

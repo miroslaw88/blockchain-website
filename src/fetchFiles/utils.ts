@@ -43,18 +43,26 @@ export function showToast(message: string, type: 'error' | 'success' | 'info' = 
 }
 
 // Fetch with timeout helper
-export async function fetchWithTimeout(url: string, timeout: number = 10000): Promise<Response> {
+export async function fetchWithTimeout(url: string, timeout: number = 10000, options: RequestInit = {}): Promise<Response> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
     
     try {
-        const response = await fetch(url, {
+        const fetchOptions: RequestInit = {
+            ...options,
             signal: controller.signal,
-            method: 'GET',
             headers: {
                 'Accept': 'application/json',
+                ...(options.headers || {}),
             },
-        });
+        };
+        
+        // Default to GET if no method specified
+        if (!fetchOptions.method) {
+            fetchOptions.method = 'GET';
+        }
+        
+        const response = await fetch(url, fetchOptions);
         clearTimeout(timeoutId);
         return response;
     } catch (error) {

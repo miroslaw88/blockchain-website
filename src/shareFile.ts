@@ -88,12 +88,19 @@ export async function shareFile(
                 ? indexerAddress
                 : `${protocol}://${indexerAddress}`;
             
-            const url = `${baseUrl}/api/indexer/v1/files/${merkleRoot}/share?owner=${owner}`;
+            const url = `${baseUrl}/api/indexer/v1/files/share`;
+            
+            // Add owner and merkle_root to payload
+            const fullPayload = {
+                owner: owner,
+                merkle_root: merkleRoot,
+                ...payload
+            };
             
             try {
                 const response = await fetch(url, {
                     method: 'POST',
-                    body: JSON.stringify(payload)
+                    body: JSON.stringify(fullPayload)
                     // Note: Not setting Content-Type header to avoid CORS preflight
                 });
                 

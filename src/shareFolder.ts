@@ -78,14 +78,19 @@ export async function shareFolder(
                 ? indexerAddress
                 : `${protocol}://${indexerAddress}`;
             
-            // Encode the folder path for URL
-            const encodedPath = encodeURIComponent(folderPath);
-            const url = `${baseUrl}/api/indexer/v1/directories/${encodedPath}/share?owner=${owner}`;
+            const url = `${baseUrl}/api/indexer/v1/directories/share`;
+            
+            // Add owner and path to payload
+            const fullPayload = {
+                owner: owner,
+                path: folderPath,
+                ...payload
+            };
             
             try {
                 const response = await fetch(url, {
                     method: 'POST',
-                    body: JSON.stringify(payload)
+                    body: JSON.stringify(fullPayload)
                     // Note: Not setting Content-Type header to avoid CORS preflight
                 });
                 

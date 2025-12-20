@@ -142,49 +142,113 @@ async function handleShareFolderSubmit(folderPath: string, folderName: string, w
             throw new Error(`Recipient ${shareAddress} does not have an account key. They must generate a symmetric key first.`);
         }
         
-        // Step 1: Get folder access key (for folders, we use the owner's account key as the folder access key)
-        // In a real implementation, folders might have their own access keys, but for now we'll use the account key
-        $statusText.text('Getting folder access key...');
-        const { getAccountKey } = await import('../accountKey');
-        const folderAccessKey = await getAccountKey(walletAddress);
+        // Step 1: Get a random active indexer to fetch directory contents
+        await Dashboard.waitForIndexer();
+        const indexer = Dashboard.getRandomIndexer();
+        if (!indexer) {
+            throw new Error('No active indexers available. Please wait and try again.');
+        }
         
-        // Step 2: Encrypt folder access key with recipient's public key using ECIES
-        $statusText.text('Encrypting folder access key for recipient...');
-        const { aesToString } = await import('../osd-blockchain-sdk');
-        const { getAccountPublicKey } = await import('../osd-blockchain-sdk');
-        const recipientPublicKey = await getAccountPublicKey(shareAddress);
+        const indexerAddress = indexer.indexer_address;
+        const protocol = indexerAddress.includes('localhost') || 
+                       /^\d+\.\d+\.\d+\.\d+/.test(indexerAddress) ||
+                       indexerAddress.startsWith('127.0.0.1')
+            ? 'http'
+            : 'https';
         
-        // Convert folder access key to AES bundle format (32 bytes key + 16 bytes IV)
-        // For folders, we'll use the account key as the key and generate a random IV
-        const iv = crypto.getRandomValues(new Uint8Array(16));
-        const keyBytes = new Uint8Array(folderAccessKey);
+        const baseUrl = indexerAddress.startsWith('http://') || indexerAddress.startsWith('https://')
+            ? indexerAddress
+            : `${protocol}://${indexerAddress}`;
         
-        // Create AES bundle
-        const folderAesBundle = {
-            iv: iv,
-            key: await crypto.subtle.importKey(
-                'raw',
-                keyBytes,
-                { name: 'AES-GCM', length: 256 },
-                true,
-                ['encrypt', 'decrypt']
-            )
-        };
+        // Step 2: Fetch all files in the directory
+        $statusText.text('Fetching files in directory...');
+        const dirUrl = `${baseUrl}/api/indexer/v1/files/dir`;
         
-        // Encrypt the AES bundle with recipient's public key
-        const recipientEncryptedKey = await aesToString(recipientPublicKey, folderAesBundle);
-        
-        // Debug: Verify encrypted key was created
-        console.log('Encrypted folder access key for recipient:', {
-            recipient: shareAddress,
-            encryptedKeyLength: recipientEncryptedKey.length,
-            encryptedKeyPreview: recipientEncryptedKey.substring(0, 20) + '...'
+        const dirResponse = await fetchWithTimeout(dirUrl, 15000, {
+            method: 'POST',
+            body: JSON.stringify({
+                owner: walletAddress,
+                path: folderPath,
+                requester: walletAddress
+            })
         });
         
-        // Step 3: Share folder with encrypted access key
+        if (!dirResponse.ok) {
+            throw new Error(`Failed to fetch directory contents: ${dirResponse.status} ${dirResponse.statusText}`);
+        }
+        
+        const dirData = await dirResponse.json();
+        const entries: Array<{
+            name: string;
+            type: string;
+            path: string;
+            merkle_root?: string;
+            encrypted_file_key?: string;
+        }> = dirData.entries || [];
+        
+        // Filter out directories, keep only files (exclude folders)
+        const files = entries.filter(entry => entry.type === 'file' && entry.encrypted_file_key);
+        
+        if (files.length === 0) {
+            throw new Error('No files found in this directory to share.');
+        }
+        
+        $statusText.text(`Processing ${files.length} file(s)...`);
+        
+        // Step 3: Decrypt each file's key and re-encrypt for recipient
+        const { decryptFileKeyWithECIES, encryptFileKeyWithECIES } = await import('../osd-blockchain-sdk');
+        
+        // Process each file: decrypt its key (encrypted with owner's public key) and re-encrypt for recipient
+        // Collect all encrypted keys - we'll combine them for the API
+        const encryptedKeysForRecipient: string[] = [];
+        
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            $statusText.text(`Processing file ${i + 1} of ${files.length}: ${file.name}...`);
+            
+            if (!file.encrypted_file_key) {
+                console.warn(`File ${file.name} (${file.merkle_root}) has no encrypted_file_key, skipping`);
+                continue;
+            }
+            
+            try {
+                // Decrypt file key (encrypted with owner's public key)
+                const fileAesBundle = await decryptFileKeyWithECIES(file.encrypted_file_key, walletAddress);
+                
+                // Re-encrypt file key for recipient
+                const recipientEncryptedKey = await encryptFileKeyWithECIES(fileAesBundle, shareAddress);
+                
+                // Store encrypted key for this file
+                encryptedKeysForRecipient.push(recipientEncryptedKey);
+            } catch (error) {
+                console.error(`Failed to process file ${file.name}:`, error);
+                throw new Error(`Failed to process file ${file.name}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            }
+        }
+        
+        if (encryptedKeysForRecipient.length === 0) {
+            throw new Error('No valid file keys found to share.');
+        }
+        
+        // Step 4: Combine all file keys into one encrypted key string for the recipient
+        // The API expects one key per recipient in encrypted_file_keys
+        // For folders with multiple files, we'll combine all keys using a delimiter
+        // Using double pipe (||) as delimiter to distinguish from single pipe used in AES bundle format
+        const combinedEncryptedKey = encryptedKeysForRecipient.join('||');
+        
+        // Debug: Verify encrypted keys were created
+        console.log('Encrypted folder file keys for recipient:', {
+            recipient: shareAddress,
+            fileCount: files.length,
+            processedFileCount: encryptedKeysForRecipient.length,
+            combinedKeyLength: combinedEncryptedKey.length,
+            combinedKeyPreview: combinedEncryptedKey.substring(0, 50) + '...'
+        });
+        
+        // Step 5: Share folder with encrypted file keys
         $statusText.text('Sharing folder with indexers...');
         const encryptedFileKeys: { [recipient: string]: string } = {
-            [shareAddress]: recipientEncryptedKey
+            [shareAddress]: combinedEncryptedKey
         };
         
         const result = await shareFolder(folderPath, walletAddress, [shareAddress], expiresAt, encryptedFileKeys);
@@ -262,11 +326,17 @@ async function fetchAndDisplayFolderShareInfo(folderPath: string, owner: string)
             ? indexerAddress
             : `${protocol}://${indexerAddress}`;
         
-        const encodedPath = encodeURIComponent(folderPath);
-        const url = `${baseUrl}/api/indexer/v1/directories/${encodedPath}/share?owner=${encodeURIComponent(owner)}`;
+        const url = `${baseUrl}/api/indexer/v1/directories/share/info`;
         
-        // Fetch share info
-        const response = await fetchWithTimeout(url, 10000);
+        // Fetch share info (POST with owner and path in request body)
+        const response = await fetchWithTimeout(url, 10000, {
+            method: 'POST',
+            body: JSON.stringify({ 
+                owner: owner,
+                path: folderPath
+            })
+            // Note: Not setting Content-Type header to avoid CORS preflight
+        });
         
         if (!response.ok) {
             if (response.status === 404) {
@@ -278,6 +348,7 @@ async function fetchAndDisplayFolderShareInfo(folderPath: string, owner: string)
         }
         
         const data = await response.json();
+        // Response format: { "resource_type": "directory", "resource_id": "/path/", "owner": "...", "share_type": "private", "shared_with": [...], "created_at": 0, "expires_at": 0 }
         const sharedWith: string[] = data.shared_with || [];
         
         // Display shared accounts with Remove buttons
@@ -335,11 +406,6 @@ async function handleRevokeFolderShare(folderPath: string, owner: string, accoun
             throw new Error('No active indexers available. Please wait and try again.');
         }
         
-        // Prepare the payload
-        const payload = {
-            account_to_revoke: accountToRevoke
-        };
-        
         // Send revoke request to all active indexers
         const results = await Promise.allSettled(
             activeIndexers.map(async (indexer) => {
@@ -357,13 +423,19 @@ async function handleRevokeFolderShare(folderPath: string, owner: string, accoun
                     ? indexerAddress
                     : `${protocol}://${indexerAddress}`;
                 
-                const encodedPath = encodeURIComponent(folderPath);
-                const url = `${baseUrl}/api/indexer/v1/directories/${encodedPath}/share/revoke?owner=${encodeURIComponent(owner)}`;
+                const url = `${baseUrl}/api/indexer/v1/directories/share/revoke`;
+                
+                // Prepare payload with owner, path, and account_to_revoke
+                const fullPayload = {
+                    owner: owner,
+                    path: folderPath,
+                    account_to_revoke: accountToRevoke
+                };
                 
                 try {
                     const response = await fetch(url, {
                         method: 'POST',
-                        body: JSON.stringify(payload)
+                        body: JSON.stringify(fullPayload)
                     });
                     
                     if (!response.ok) {

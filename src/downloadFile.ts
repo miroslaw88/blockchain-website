@@ -44,18 +44,22 @@ function showToast(message: string, type: 'error' | 'success' | 'info' = 'error'
 }
 
 // Fetch with timeout helper
-async function fetchWithTimeout(url: string, timeout: number = 10000): Promise<Response> {
+async function fetchWithTimeout(url: string, timeout: number = 10000, options: RequestInit = {}): Promise<Response> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
     
     try {
-        const response = await fetch(url, {
+        const fetchOptions: RequestInit = {
+            ...options,
             signal: controller.signal,
-            method: 'GET',
             headers: {
                 'Accept': 'application/json',
+                'Content-Type': 'application/json',
+                ...(options.headers || {}),
             },
-        });
+        };
+        
+        const response = await fetch(url, fetchOptions);
         clearTimeout(timeoutId);
         return response;
     } catch (error) {
@@ -458,7 +462,9 @@ export async function downloadSharedFile(
         }
         
         console.log('Downloading shared file from:', downloadUrl);
-        const encryptedResponse = await fetchWithTimeout(downloadUrl, 60000); // 60 second timeout for file download
+        const encryptedResponse = await fetchWithTimeout(downloadUrl, 60000, {
+            method: 'GET'
+        }); // 60 second timeout for file download
         
         if (!encryptedResponse.ok) {
             throw new Error(`Failed to download file: ${encryptedResponse.status} ${encryptedResponse.statusText}`);
@@ -536,11 +542,22 @@ export async function downloadFile(fileMetadata: any, walletAddress: string, $bu
         const indexer = await Dashboard.waitForIndexer();
         
         const protocol = indexer.indexer_address.includes('localhost') || indexer.indexer_address.match(/^\d+\.\d+\.\d+\.\d+/) ? 'http' : 'https';
-        const downloadInfoUrl = `${protocol}://${indexer.indexer_address}/api/indexer/v1/files/${merkleRoot}?owner=${walletAddress}`;
+        const baseUrl = indexer.indexer_address.startsWith('http://') || indexer.indexer_address.startsWith('https://')
+            ? indexer.indexer_address
+            : `${protocol}://${indexer.indexer_address}`;
+        const downloadInfoUrl = `${baseUrl}/api/indexer/v1/files/query`;
         
         console.log('Querying file info from indexer:', downloadInfoUrl);
+        console.log('Request payload:', { merkle_root: merkleRoot, owner: walletAddress, requester: walletAddress });
         
-        const infoResponse = await fetchWithTimeout(downloadInfoUrl, 15000);
+        const infoResponse = await fetchWithTimeout(downloadInfoUrl, 15000, {
+            method: 'POST',
+            body: JSON.stringify({
+                merkle_root: merkleRoot,
+                owner: walletAddress,
+                requester: walletAddress
+            })
+        });
         if (!infoResponse.ok) {
             throw new Error(`Failed to query file info from indexer: ${infoResponse.status} ${infoResponse.statusText}`);
         }
@@ -617,7 +634,9 @@ export async function downloadFile(fileMetadata: any, walletAddress: string, $bu
         }
         
         console.log('Downloading encrypted file from:', downloadUrl);
-        const encryptedResponse = await fetchWithTimeout(downloadUrl, 60000); // 60 second timeout for file download
+        const encryptedResponse = await fetchWithTimeout(downloadUrl, 60000, {
+            method: 'GET'
+        }); // 60 second timeout for file download
         
         if (!encryptedResponse.ok) {
             throw new Error(`Failed to download file: ${encryptedResponse.status} ${encryptedResponse.statusText}`);

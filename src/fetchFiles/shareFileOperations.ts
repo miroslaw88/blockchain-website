@@ -251,10 +251,17 @@ async function fetchAndDisplayShareInfo(merkleRoot: string, owner: string): Prom
             ? indexerAddress
             : `${protocol}://${indexerAddress}`;
         
-        const url = `${baseUrl}/api/indexer/v1/files/${merkleRoot}/share?owner=${encodeURIComponent(owner)}`;
+        const url = `${baseUrl}/api/indexer/v1/files/share/info`;
         
-        // Fetch share info
-        const response = await fetchWithTimeout(url, 10000);
+        // Fetch share info (POST with owner and merkle_root in request body)
+        const response = await fetchWithTimeout(url, 10000, {
+            method: 'POST',
+            body: JSON.stringify({ 
+                owner: owner,
+                merkle_root: merkleRoot
+            })
+            // Note: Not setting Content-Type header to avoid CORS preflight
+        });
         
         if (!response.ok) {
             if (response.status === 404) {
@@ -324,11 +331,6 @@ async function handleRevokeShare(merkleRoot: string, owner: string, accountToRev
             throw new Error('No active indexers available. Please wait and try again.');
         }
         
-        // Prepare the payload
-        const payload = {
-            account_to_revoke: accountToRevoke
-        };
-        
         // Send revoke request to all active indexers
         const results = await Promise.allSettled(
             activeIndexers.map(async (indexer) => {
@@ -346,12 +348,19 @@ async function handleRevokeShare(merkleRoot: string, owner: string, accountToRev
                     ? indexerAddress
                     : `${protocol}://${indexerAddress}`;
                 
-                const url = `${baseUrl}/api/indexer/v1/files/${merkleRoot}/share/revoke?owner=${encodeURIComponent(owner)}`;
+                const url = `${baseUrl}/api/indexer/v1/files/share/revoke`;
+                
+                // Prepare payload with owner, merkle_root, and account_to_revoke
+                const fullPayload = {
+                    owner: owner,
+                    merkle_root: merkleRoot,
+                    account_to_revoke: accountToRevoke
+                };
                 
                 try {
                     const response = await fetch(url, {
                         method: 'POST',
-                        body: JSON.stringify(payload)
+                        body: JSON.stringify(fullPayload)
                         // Note: Not setting Content-Type header to avoid CORS preflight
                     });
                     

@@ -102,14 +102,14 @@ async function fetchSharedAccounts(walletAddress: string): Promise<void> {
             ? indexerAddress
             : `${protocol}://${indexerAddress}`;
         
-        const url = `${baseUrl}/api/indexer/v1/shared/accounts?requester=${encodeURIComponent(walletAddress)}`;
+        const url = `${baseUrl}/api/indexer/v1/shared/accounts`;
         
-        // Fetch shared accounts
-        const response = await fetch(url, {
-            method: 'GET',
-            headers: {
-                'Accept': 'application/json'
-            }
+        // Fetch shared accounts (POST with requester in request body)
+        const response = await fetchWithTimeout(url, 15000, {
+            method: 'POST',
+            body: JSON.stringify({
+                requester: walletAddress
+            })
         });
         
         if (!response.ok) {
@@ -222,12 +222,18 @@ async function fetchSharedFiles(accountAddress: string, requesterAddress: string
             ? indexerAddress
             : `${protocol}://${indexerAddress}`;
         
-        const url = `${baseUrl}/api/indexer/v1/shared/files?requester=${encodeURIComponent(requesterAddress)}&sharer=${encodeURIComponent(accountAddress)}`;
+        const url = `${baseUrl}/api/indexer/v1/shared/files`;
         
         console.log('Fetching shared files from:', url);
         
-        // Fetch shared files
-        const response = await fetchWithTimeout(url, 15000);
+        // Fetch shared files (POST with requester and sharer_account in request body)
+        const response = await fetchWithTimeout(url, 15000, {
+            method: 'POST',
+            body: JSON.stringify({
+                requester: requesterAddress,
+                sharer_account: accountAddress
+            })
+        });
         
         if (!response.ok) {
             const errorText = await response.text().catch(() => 'Unknown error');
