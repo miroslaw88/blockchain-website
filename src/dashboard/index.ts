@@ -9,6 +9,8 @@ import { handleFiles } from './fileUpload';
 import { startIndexerPolling, getRandomIndexer as _getRandomIndexer, getAllActiveIndexers as _getAllActiveIndexers, waitForIndexer as _waitForIndexer } from './indexers';
 import { showBuyStorageModal, showExtendStorageModal } from './storageModals';
 import { checkAndUpdateAccountKeyStatus, checkECIESKeyAndShowModal, handleDeleteAccountKey, handleGenerateAccountKey } from './eciesKeyManagement';
+import { requestTokensFromFaucet } from '../faucet';
+import { showToast } from '../fetchFiles/utils';
 
 export namespace Dashboard {
     // Export indexer functions
@@ -20,6 +22,9 @@ export namespace Dashboard {
     export function init() {
         // Disconnect button
         $('#disconnectBtn').on('click', disconnectWallet);
+        
+        // Get Tokens button
+        $('#getTokensBtn').on('click', handleGetTokens);
 
         // Generate account key button (delegated event handler for dynamically added button)
         // Remove any existing handlers first to prevent duplicates
@@ -87,6 +92,47 @@ export namespace Dashboard {
             // Fetch files automatically
             fetchFiles(walletAddress);
         }
+    }
+}
+
+// Handle Get Tokens button click
+async function handleGetTokens(): Promise<void> {
+    const $button = $('#getTokensBtn');
+    const originalText = $button.html();
+    
+    // Disable button and show loading state
+    $button.prop('disabled', true);
+    $button.html(`
+        <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+        Requesting...
+    `);
+    
+    try {
+        const walletAddress = sessionStorage.getItem('walletAddress');
+        if (!walletAddress) {
+            showToast('Wallet address not found. Please connect your wallet.', 'error');
+            return;
+        }
+        
+        // Request tokens from faucet
+        const result = await requestTokensFromFaucet(walletAddress, '1000000');
+        
+        if (result.success) {
+            const message = result.tx_hash 
+                ? `Tokens requested successfully! Transaction: ${result.tx_hash.substring(0, 16)}...`
+                : result.message || 'Tokens requested successfully!';
+            showToast(message, 'success');
+        } else {
+            showToast(result.error || 'Failed to request tokens from faucet', 'error');
+        }
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Failed to request tokens';
+        console.error('Get tokens error:', error);
+        showToast(errorMessage, 'error');
+    } finally {
+        // Restore button state
+        $button.prop('disabled', false);
+        $button.html(originalText);
     }
 }
 
