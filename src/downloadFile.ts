@@ -416,7 +416,7 @@ async function finishDownload(encryptedBlob: Blob, fileAesBundle: IAesBundle, fi
 // For shared files, the encrypted file key should be included in the shared file response
 export async function downloadSharedFile(
     merkleRoot: string,
-    storageProviders: Array<{ provider_id?: string; provider_address?: string; providerAddress?: string }>,
+    storageProviders: Array<{ provider_id?: string; provider_address?: string }>,
     metadata: any,
     encryptedFileKeyBase64: string,
     walletAddress: string,
@@ -441,7 +441,7 @@ export async function downloadSharedFile(
         
         // Use the first available storage provider
         const provider = storageProviders[0];
-        const providerAddress = provider.provider_address || provider.providerAddress;
+        const providerAddress = provider.provider_address;
         
         if (!providerAddress) {
             throw new Error('Storage provider address not found');
@@ -531,8 +531,7 @@ export async function downloadSharedFile(
 // Download file from storage provider
 export async function downloadFile(fileMetadata: any, walletAddress: string, $button?: JQuery<HTMLElement>): Promise<void> {
     try {
-        // Handle both camelCase and snake_case for merkle root
-        const merkleRoot = fileMetadata.merkleRoot || fileMetadata.merkle_root || '';
+        const merkleRoot = fileMetadata.merkle_root || '';
         if (!merkleRoot) {
             throw new Error('Merkle root not found in file metadata');
         }
@@ -567,7 +566,7 @@ export async function downloadFile(fileMetadata: any, walletAddress: string, $bu
         
         // Get encrypted_file_key from indexer response
         const fileData = downloadInfo.file || {};
-        const encryptedFileKey = fileData.encrypted_file_key || fileData.encryptedFileKey;
+        const encryptedFileKey = fileData.encrypted_file_key;
         if (!encryptedFileKey) {
             throw new Error('Encrypted file key not found in indexer response. File may not be properly encrypted.');
         }
@@ -616,7 +615,7 @@ export async function downloadFile(fileMetadata: any, walletAddress: string, $bu
         
         // Use the first available storage provider
         const provider = storageProviders[0];
-        const providerAddress = provider.provider_address || provider.providerAddress;
+        const providerAddress = provider.provider_address;
         
         if (!providerAddress) {
             throw new Error('Storage provider address not found');

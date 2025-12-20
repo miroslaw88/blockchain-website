@@ -40,9 +40,7 @@ export async function getAccountKey(walletAddress: string): Promise<Uint8Array> 
     
     // Get encrypted account key from response
     // Blockchain returns: {"encrypted_account_key": "hex_encoded_key_here"}
-    // Support both camelCase and snake_case for flexibility
-    const encryptedAccountKeyHex = data.encrypted_account_key || 
-                                    data.encryptedAccountKey || '';
+    const encryptedAccountKeyHex = data.encrypted_account_key || '';
     
     // Debug: Log the encrypted key details
     console.log('Encrypted key (hex):', encryptedAccountKeyHex);

@@ -184,17 +184,15 @@ export async function fetchFiles(walletAddress: string, path: string = ''): Prom
                 // Get filename from original_name (hashed format stores original in original_name)
                 const fileName = metadata.original_name || entry.name || 'Unknown File';
                 const contentType = metadata.content_type || 'application/octet-stream';
-                // Handle both camelCase and snake_case from API
-                const sizeBytes = parseInt(entry.size_bytes || entry.sizeBytes || '0', 10);
+                const sizeBytes = parseInt(entry.size_bytes || '0', 10);
                 const fileSize = formatFileSize(sizeBytes);
-                const uploadDate = formatDate(parseInt(entry.uploaded_at || entry.uploadedAt || '0', 10));
-                const expirationDate = formatDate(parseInt(entry.expiration_time || entry.expirationTime || '0', 10));
-                const expirationTimestamp = parseInt(entry.expiration_time || entry.expirationTime || '0', 10);
+                const uploadDate = formatDate(parseInt(entry.uploaded_at || '0', 10));
+                const expirationDate = formatDate(parseInt(entry.expiration_time || '0', 10));
+                const expirationTimestamp = parseInt(entry.expiration_time || '0', 10);
                 const isExpired = Boolean(expirationTimestamp && expirationTimestamp < Math.floor(Date.now() / 1000));
-                // Handle both camelCase and snake_case for merkle root
-                const merkleRoot = entry.merkle_root || entry.merkleRoot || '';
+                const merkleRoot = entry.merkle_root || '';
                 // Get encrypted file key from indexer response
-                const encryptedFileKey = entry.encrypted_file_key || entry.encryptedFileKey || '';
+                const encryptedFileKey = entry.encrypted_file_key || '';
                 
                 // Generate thumbnail HTML and add encrypted_file_key as data attribute
                 const thumbnailHTML = getFileThumbnailTemplate(

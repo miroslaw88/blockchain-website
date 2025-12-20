@@ -58,7 +58,7 @@ export function showSharedAccountsModal(walletAddress: string): void {
                                indexerAddress.startsWith('127.0.0.1')
                     ? 'http'
                     : 'https';
-                fetchSharedFiles(accountAddress, walletAddress, indexerAddress, protocol);
+                fetchSharedFiles(accountAddress, walletAddress, indexerAddress, protocol, path);
             }
         }
     });
@@ -195,13 +195,13 @@ function displaySharedAccounts(accounts: string[], requesterAddress: string, ind
         const $folder = $(this);
         const accountAddress = $folder.attr('data-folder-path');
         if (accountAddress) {
-            fetchSharedFiles(accountAddress, requesterAddress, indexerAddress, protocol);
+            fetchSharedFiles(accountAddress, requesterAddress, indexerAddress, protocol, '/');
         }
     });
 }
 
 // Fetch shared files from a specific account
-async function fetchSharedFiles(accountAddress: string, requesterAddress: string, indexerAddress: string, protocol: string): Promise<void> {
+async function fetchSharedFiles(accountAddress: string, requesterAddress: string, indexerAddress: string, protocol: string, path: string = '/'): Promise<void> {
     const $status = $('#sharedAccountsStatus');
     const $statusText = $('#sharedAccountsStatusText');
     const $content = $('#sharedAccountsContent');
@@ -226,12 +226,13 @@ async function fetchSharedFiles(accountAddress: string, requesterAddress: string
         
         console.log('Fetching shared files from:', url);
         
-        // Fetch shared files (POST with requester and sharer_account in request body)
+        // Fetch shared files (POST with requester, sharer_account, and path in request body)
         const response = await fetchWithTimeout(url, 15000, {
             method: 'POST',
             body: JSON.stringify({
                 requester: requesterAddress,
-                sharer_account: accountAddress
+                sharer_account: accountAddress,
+                path: path
             })
         });
         
@@ -242,24 +243,19 @@ async function fetchSharedFiles(accountAddress: string, requesterAddress: string
         
         const data = await response.json();
         
-        // Parse entries array - new format: { "sharer_account": "...", "entries": [{ "file": {...}, "storage_providers": [...] }] }
+        // Parse entries array - new format: { "sharer_account": "...", "entries": [{ "name": "...", "type": "...", "path": "...", "size": ..., "merkle_root": "...", ... }] }
         let entries: Array<{
-            file: {
-                merkle_root: string;
-                owner: string;
-                path: string;
-                size_bytes: number;
-                expiration_time: number;
-                max_proofs: number;
-                metadata: string;
-                uploaded_at: number;
-                encrypted_file_key?: string;
-            };
-            storage_providers: Array<{
-                provider_id?: string;
-                provider_address?: string;
-                providerAddress?: string;
-            }>;
+            name: string;
+            type: string;
+            path: string;
+            size: number;
+            merkle_root: string;
+            owner: string;
+            expiration_time: number;
+            max_proofs: number;
+            metadata: string;
+            uploaded_at: number;
+            encrypted_file_key?: string;
         }> = data.entries || [];
         
         // Add fake test file for testing download of non-shared file
@@ -268,11 +264,12 @@ async function fetchSharedFiles(accountAddress: string, requesterAddress: string
         const fakeTestAccount = 'cosmos1testaccount123456789012345678901234567890';
         if (accountAddress === fakeTestAccount) {
             entries.push({
-            file: {
+                name: 'Test File (Not Shared).png',
+                type: 'file',
+                path: '/',
+                size: 42939,
                 merkle_root: 'f8a47fcc99e096ba62e1b1f3fb3f0ca76262b72a0846f8d3096ebf0bf7926d28',
                 owner: accountAddress,
-                path: '/',
-                size_bytes: 42939,
                 expiration_time: 0,
                 max_proofs: 3,
                 metadata: JSON.stringify({
@@ -284,11 +281,6 @@ async function fetchSharedFiles(accountAddress: string, requesterAddress: string
                 }),
                 uploaded_at: Math.floor(Date.now() / 1000),
                 encrypted_file_key: '049049a3ce5f5e9964e958f9c9998f30a1374a06cac0741b64ce07725ed360cdeb561827031b3829cb6348c12f4d39eeff48ce65709b34068315122165028441e56c993d474f7ad52dd08f2955f10537c50af791b9e8ec27a7f4b533d07d78ec348f6ce16e30cb9fea517d574767b49ed4|04c216565ef46b477d58b32db750bb9a0ca29a00ad4e3e601a370d4e3833e635b3929b88153774898b1cd86b41499a1f97a09aa7f5b41fd274fd91c3d175544146e065dc078f7a586cd4a7528c6652cad2fad6d3688051ba5b451c45a1a1cd5d97662e5945b96bf55b57e81b699b5bc4536b3d259ae845bd3c383a1fc2d8e756b2' // Empty key - file is not shared
-            },
-            storage_providers: [{
-                provider_id: 'provider_64e279c64ec14220',
-                provider_address: 'storage.datavault.space'
-            }]
             });
         }
         
@@ -310,42 +302,48 @@ async function fetchSharedFiles(accountAddress: string, requesterAddress: string
             $content.html(getEmptyStateTemplate());
         } else {
             const entriesGrid = entries.map((entry: any) => {
-                const file = entry.file;
+                // Filter out directories, only show files
+                if (entry.type !== 'file') {
+                    return '';
+                }
                 
                 // Parse metadata (it's a JSON string)
                 let metadata: any = { content_type: 'application/octet-stream' };
                 try {
-                    metadata = JSON.parse(file.metadata || '{}');
+                    metadata = JSON.parse(entry.metadata || '{}');
                 } catch (e) {
                     console.warn('Failed to parse metadata:', e);
                 }
                 
-                const fileName = metadata.original_name || 'Unknown File';
+                const fileName = metadata.original_name || entry.name || 'Unknown File';
                 const contentType = metadata.content_type || 'application/octet-stream';
-                const sizeBytes = typeof file.size_bytes === 'number' ? file.size_bytes : parseInt(file.size_bytes?.toString() || '0', 10);
+                const sizeBytes = typeof entry.size === 'number' ? entry.size : parseInt(entry.size?.toString() || '0', 10);
                 const fileSize = formatFileSize(sizeBytes);
-                const uploadTimestamp = typeof file.uploaded_at === 'number' ? file.uploaded_at : parseInt(file.uploaded_at?.toString() || '0', 10);
+                const uploadTimestamp = typeof entry.uploaded_at === 'number' ? entry.uploaded_at : parseInt(entry.uploaded_at?.toString() || '0', 10);
                 const uploadDate = formatDate(uploadTimestamp);
-                const expirationTimestamp = typeof file.expiration_time === 'number' ? file.expiration_time : parseInt(file.expiration_time?.toString() || '0', 10);
+                const expirationTimestamp = typeof entry.expiration_time === 'number' ? entry.expiration_time : parseInt(entry.expiration_time?.toString() || '0', 10);
                 const expirationDate = formatDate(expirationTimestamp);
                 const isExpired = Boolean(expirationTimestamp && expirationTimestamp < Math.floor(Date.now() / 1000));
-                const merkleRoot = file.merkle_root || '';
-                const storageProviders = entry.storage_providers || [];
+                const merkleRoot = entry.merkle_root || '';
                 
                 // Get encrypted file key from entry
-                // The indexer returns encrypted_file_key (singular) in the file object
+                // The indexer returns encrypted_file_key (singular) in the entry object
                 // This is the key encrypted with the recipient's public key
-                const encryptedFileKey = file.encrypted_file_key || file.encryptedFileKey || '';
+                const encryptedFileKey = entry.encrypted_file_key || '';
                 
                 // Debug: Log the encrypted file key from the response
                 console.log('Extracting encrypted file key from entry:', {
                     hasEncryptedFileKey: !!encryptedFileKey,
                     encryptedFileKeyLength: encryptedFileKey.length,
                     encryptedFileKeyPreview: encryptedFileKey.substring(0, 30) + '...',
-                    fileKeys: Object.keys(file)
+                    entryKeys: Object.keys(entry)
                 });
                 
-                // Store storage providers, metadata, and encrypted file key in data attributes for download
+                // Store metadata and encrypted file key in data attributes for download
+                // Note: storage_providers are no longer in the response, so we'll need to fetch them separately if needed
+                // For now, we'll use an empty array
+                const storageProviders: Array<{ provider_id?: string; provider_address?: string }> = [];
+                
                 // Use HTML entity encoding for the encrypted key to avoid issues with special characters
                 const escapedEncryptedKey = encryptedFileKey.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
                 
@@ -396,7 +394,7 @@ async function fetchSharedFiles(accountAddress: string, requesterAddress: string
                     return;
                 }
                 
-                let storageProviders: Array<{ provider_id?: string; provider_address?: string; providerAddress?: string }> = [];
+                let storageProviders: Array<{ provider_id?: string; provider_address?: string }> = [];
                 let fileMetadata: any = {};
                 
                 try {
