@@ -279,6 +279,7 @@ async function fetchSharedFiles(accountAddress: string, requesterAddress: string
             metadata: string;
             uploaded_at: number;
             encrypted_file_key?: string;
+            storage_providers?: Array<{ provider_id?: string; provider_address?: string }>;
         }> = data.entries || [];
         
         // Add fake test file for testing download of non-shared file
@@ -384,18 +385,19 @@ async function fetchSharedFiles(accountAddress: string, requesterAddress: string
                 // This is the key encrypted with the recipient's public key
                 const encryptedFileKey = entry.encrypted_file_key || '';
                 
-                // Debug: Log the encrypted file key from the response
-                console.log('Extracting encrypted file key from entry:', {
+                // Get storage providers from entry
+                // The indexer returns storage_providers array in the entry object
+                const storageProviders: Array<{ provider_id?: string; provider_address?: string }> = entry.storage_providers || [];
+                
+                // Debug: Log the encrypted file key and storage providers from the response
+                console.log('Extracting file data from entry:', {
                     hasEncryptedFileKey: !!encryptedFileKey,
                     encryptedFileKeyLength: encryptedFileKey.length,
                     encryptedFileKeyPreview: encryptedFileKey.substring(0, 30) + '...',
+                    storageProvidersCount: storageProviders.length,
+                    storageProviders: storageProviders,
                     entryKeys: Object.keys(entry)
                 });
-                
-                // Store metadata and encrypted file key in data attributes for download
-                // Note: storage_providers are no longer in the response, so we'll need to fetch them separately if needed
-                // For now, we'll use an empty array
-                const storageProviders: Array<{ provider_id?: string; provider_address?: string }> = [];
                 
                 // Use HTML entity encoding for the encrypted key to avoid issues with special characters
                 const escapedEncryptedKey = encryptedFileKey.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
