@@ -550,7 +550,9 @@ function buildSharedBreadcrumbs(accountAddress: string, currentPath: string): st
         if (isLast) {
             breadcrumbItems += `<li class="breadcrumb-item active" aria-current="page">${segment.name}</li>`;
         } else {
-            breadcrumbItems += `<li class="breadcrumb-item"><a href="#" class="shared-breadcrumb-link" data-account="${accountAddress}" data-path="${segment.path}">${segment.name}</a></li>`;
+            // For "Shared Accounts" link (path is empty), don't set data-account so it navigates back to accounts list
+            const accountAttr = segment.path === '' ? '' : `data-account="${accountAddress}"`;
+            breadcrumbItems += `<li class="breadcrumb-item"><a href="#" class="shared-breadcrumb-link" ${accountAttr} data-path="${segment.path}">${segment.name}</a></li>`;
         }
     });
     
