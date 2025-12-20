@@ -17,7 +17,7 @@ export interface ShareFolderResult {
  * @param owner - The owner's wallet address
  * @param sharedWith - Array of wallet addresses to share with
  * @param expiresAt - Unix timestamp (seconds) when the share expires
- * @param encryptedFileKeys - Object mapping recipient addresses to their encrypted folder access keys
+ * @param encryptedFileKeysByFile - Object mapping recipient addresses to their encrypted file keys by merkle root
  * @returns Result with success/failure counts and details
  */
 export async function shareFolder(
@@ -25,7 +25,7 @@ export async function shareFolder(
     owner: string,
     sharedWith: string[],
     expiresAt: number,
-    encryptedFileKeys: { [recipient: string]: string }
+    encryptedFileKeysByFile: { [recipient: string]: { [merkleRoot: string]: string } }
 ): Promise<ShareFolderResult> {
     // Get all active indexers
     const activeIndexers = Dashboard.getAllActiveIndexers();
@@ -39,7 +39,7 @@ export async function shareFolder(
         throw new Error('At least one recipient address is required for sharing.');
     }
     
-    if (!encryptedFileKeys || Object.keys(encryptedFileKeys).length === 0) {
+    if (!encryptedFileKeysByFile || Object.keys(encryptedFileKeysByFile).length === 0) {
         throw new Error('Encrypted folder access keys are required for sharing. Please ensure recipients have account keys.');
     }
     
@@ -47,7 +47,7 @@ export async function shareFolder(
     const payload: any = {
         share_type: 'private',
         shared_with: sharedWith,
-        encrypted_file_keys: encryptedFileKeys,
+        encrypted_file_keys_by_file: encryptedFileKeysByFile,
         expires_at: expiresAt
     };
     
@@ -56,8 +56,11 @@ export async function shareFolder(
         share_type: payload.share_type,
         shared_with: payload.shared_with,
         expires_at: payload.expires_at,
-        encrypted_file_keys: Object.keys(payload.encrypted_file_keys).reduce((acc, key) => {
-            acc[key] = payload.encrypted_file_keys[key].substring(0, 20) + '...';
+        encrypted_file_keys_by_file: Object.keys(payload.encrypted_file_keys_by_file).reduce((acc, recipient) => {
+            acc[recipient] = Object.keys(payload.encrypted_file_keys_by_file[recipient]).reduce((fileAcc, merkleRoot) => {
+                fileAcc[merkleRoot] = payload.encrypted_file_keys_by_file[recipient][merkleRoot].substring(0, 20) + '...';
+                return fileAcc;
+            }, {} as any);
             return acc;
         }, {} as any)
     });

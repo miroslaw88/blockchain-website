@@ -199,8 +199,10 @@ async function handleShareFolderSubmit(folderPath: string, folderName: string, w
         const { decryptFileKeyWithECIES, encryptFileKeyWithECIES } = await import('../osd-blockchain-sdk');
         
         // Process each file: decrypt its key (encrypted with owner's public key) and re-encrypt for recipient
-        // Collect all encrypted keys - we'll combine them for the API
-        const encryptedKeysForRecipient: string[] = [];
+        // Build encrypted_file_keys_by_file structure: { recipient: { merkle_root: encrypted_key } }
+        const encryptedFileKeysByFile: { [recipient: string]: { [merkleRoot: string]: string } } = {
+            [shareAddress]: {}
+        };
         
         for (let i = 0; i < files.length; i++) {
             const file = files[i];
@@ -211,6 +213,11 @@ async function handleShareFolderSubmit(folderPath: string, folderName: string, w
                 continue;
             }
             
+            if (!file.merkle_root) {
+                console.warn(`File ${file.name} has no merkle_root, skipping`);
+                continue;
+            }
+            
             try {
                 // Decrypt file key (encrypted with owner's public key)
                 const fileAesBundle = await decryptFileKeyWithECIES(file.encrypted_file_key, walletAddress);
@@ -218,40 +225,30 @@ async function handleShareFolderSubmit(folderPath: string, folderName: string, w
                 // Re-encrypt file key for recipient
                 const recipientEncryptedKey = await encryptFileKeyWithECIES(fileAesBundle, shareAddress);
                 
-                // Store encrypted key for this file
-                encryptedKeysForRecipient.push(recipientEncryptedKey);
+                // Store encrypted key for this file by merkle root
+                encryptedFileKeysByFile[shareAddress][file.merkle_root] = recipientEncryptedKey;
             } catch (error) {
                 console.error(`Failed to process file ${file.name}:`, error);
                 throw new Error(`Failed to process file ${file.name}: ${error instanceof Error ? error.message : 'Unknown error'}`);
             }
         }
         
-        if (encryptedKeysForRecipient.length === 0) {
+        if (Object.keys(encryptedFileKeysByFile[shareAddress]).length === 0) {
             throw new Error('No valid file keys found to share.');
         }
-        
-        // Step 4: Combine all file keys into one encrypted key string for the recipient
-        // The API expects one key per recipient in encrypted_file_keys
-        // For folders with multiple files, we'll combine all keys using a delimiter
-        // Using double pipe (||) as delimiter to distinguish from single pipe used in AES bundle format
-        const combinedEncryptedKey = encryptedKeysForRecipient.join('||');
         
         // Debug: Verify encrypted keys were created
         console.log('Encrypted folder file keys for recipient:', {
             recipient: shareAddress,
             fileCount: files.length,
-            processedFileCount: encryptedKeysForRecipient.length,
-            combinedKeyLength: combinedEncryptedKey.length,
-            combinedKeyPreview: combinedEncryptedKey.substring(0, 50) + '...'
+            processedFileCount: Object.keys(encryptedFileKeysByFile[shareAddress]).length,
+            merkleRoots: Object.keys(encryptedFileKeysByFile[shareAddress])
         });
         
-        // Step 5: Share folder with encrypted file keys
+        // Step 4: Share folder with encrypted file keys by file
         $statusText.text('Sharing folder with indexers...');
-        const encryptedFileKeys: { [recipient: string]: string } = {
-            [shareAddress]: combinedEncryptedKey
-        };
         
-        const result = await shareFolder(folderPath, walletAddress, [shareAddress], expiresAt, encryptedFileKeys);
+        const result = await shareFolder(folderPath, walletAddress, [shareAddress], expiresAt, encryptedFileKeysByFile);
         
         // Update status based on results
         if (result.failureCount === 0) {
