@@ -183,9 +183,10 @@ function displaySharedAccounts(accounts: string[], requesterAddress: string, ind
     
     $content.html(getEntriesGridTemplate(accountsGrid));
     
-    // Attach click handlers for account folders
-    $('#sharedAccountsContent').off('click', '.folder-thumbnail');
-    $('#sharedAccountsContent').on('click', '.folder-thumbnail', function(e) {
+    // Attach click handlers for account folders (only account folders, not shared folders)
+    // Use a more specific selector to avoid conflicts with shared-folder-thumbnail
+    $('#sharedAccountsContent').off('click', '.folder-thumbnail:not(.shared-folder-thumbnail)');
+    $('#sharedAccountsContent').on('click', '.folder-thumbnail:not(.shared-folder-thumbnail)', function(e) {
         // Don't navigate if clicking on the delete button
         if ($(e.target).closest('.delete-folder-btn').length > 0) {
             return;
@@ -200,8 +201,30 @@ function displaySharedAccounts(accounts: string[], requesterAddress: string, ind
     });
 }
 
+// Track if a fetch is in progress to prevent duplicate requests
+let isFetchingSharedFiles = false;
+let currentFetchKey = '';
+
 // Fetch shared files from a specific account
 async function fetchSharedFiles(accountAddress: string, requesterAddress: string, indexerAddress: string, protocol: string, path: string = '/'): Promise<void> {
+    // Create a unique key for this fetch request
+    const fetchKey = `${accountAddress}:${path}`;
+    
+    // Prevent duplicate requests
+    if (isFetchingSharedFiles && currentFetchKey === fetchKey) {
+        console.log('Fetch already in progress for:', fetchKey);
+        return;
+    }
+    
+    // Normalize path - ensure it starts with / and ends with / for directories
+    let normalizedPath = path;
+    if (!normalizedPath.startsWith('/')) {
+        normalizedPath = '/' + normalizedPath;
+    }
+    
+    isFetchingSharedFiles = true;
+    currentFetchKey = fetchKey;
+    
     const $status = $('#sharedAccountsStatus');
     const $statusText = $('#sharedAccountsStatusText');
     const $content = $('#sharedAccountsContent');
@@ -224,7 +247,7 @@ async function fetchSharedFiles(accountAddress: string, requesterAddress: string
         
         const url = `${baseUrl}/api/indexer/v1/shared/files`;
         
-        console.log('Fetching shared files from:', url);
+        console.log('Fetching shared files from:', url, 'with path:', normalizedPath);
         
         // Fetch shared files (POST with requester, sharer_account, and path in request body)
         const response = await fetchWithTimeout(url, 15000, {
@@ -232,7 +255,7 @@ async function fetchSharedFiles(accountAddress: string, requesterAddress: string
             body: JSON.stringify({
                 requester: requesterAddress,
                 sharer_account: accountAddress,
-                path: path
+                path: normalizedPath
             })
         });
         
@@ -284,15 +307,17 @@ async function fetchSharedFiles(accountAddress: string, requesterAddress: string
             });
         }
         
-        // Build breadcrumbs
-        const breadcrumbs = buildSharedBreadcrumbs(accountAddress, '/');
+        // Build breadcrumbs based on current path
+        const breadcrumbs = buildSharedBreadcrumbs(accountAddress, normalizedPath);
         
-        // Count files
-        const fileCount = entries.length;
+        // Count files and folders
+        const fileCount = entries.filter((e: any) => e.type === 'file').length;
+        const folderCount = entries.filter((e: any) => e.type === 'directory').length;
         
         // Update title
         const displayAccount = accountAddress.length > 20 ? `${accountAddress.substring(0, 20)}...` : accountAddress;
-        $title.text(`Shared Files: ${displayAccount}`);
+        const displayPath = normalizedPath === '/' ? '' : ` - ${normalizedPath}`;
+        $title.text(`Shared Files: ${displayAccount}${displayPath}`);
         
         // Update breadcrumbs
         $breadcrumbs.html(breadcrumbs);
@@ -302,7 +327,35 @@ async function fetchSharedFiles(accountAddress: string, requesterAddress: string
             $content.html(getEmptyStateTemplate());
         } else {
             const entriesGrid = entries.map((entry: any) => {
-                // Filter out directories, only show files
+                // Handle directory entries
+                if (entry.type === 'directory') {
+                    const folderName = entry.name || 'Unknown Folder';
+                    const folderPath = entry.path || '';
+                    
+                    // Use folder thumbnail template but without share/delete buttons
+                    // We'll create a simplified version for shared folders
+                    return `
+                        <div class="col-md-3 col-sm-4 col-6 mb-4">
+                            <div class="card h-100 file-thumbnail folder-thumbnail shared-folder-thumbnail" style="transition: transform 0.2s; cursor: pointer;" data-folder-path="${folderPath}" data-account="${accountAddress}">
+                                <div class="card-body text-center p-3">
+                                    <div class="file-icon mb-2" style="color: #ffc107;">
+                                        ${getFolderIcon()}
+                                    </div>
+                                    <h6 class="card-title mb-1 text-truncate" style="font-size: 0.9rem;" title="${folderName}">${folderName}</h6>
+                                    <p class="text-muted small mb-1">Folder</p>
+                                    <div class="mt-2 d-flex gap-2 justify-content-center align-items-center">
+                                        <span class="badge bg-info d-flex align-items-center" style="height: 32px; padding: 0.25rem 0.5rem;">Directory</span>
+                                    </div>
+                                </div>
+                                <div class="card-footer bg-transparent border-0 pt-0 pb-2">
+                                    <small class="text-muted d-block" style="font-size: 0.75rem;">Path: ${folderPath}</small>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                // Handle file entries
                 if (entry.type !== 'file') {
                     return '';
                 }
@@ -363,6 +416,30 @@ async function fetchSharedFiles(accountAddress: string, requesterAddress: string
             }).filter(html => html !== '').join('');
             
             $content.html(getEntriesGridTemplate(entriesGrid));
+            
+            // Attach event handlers for folders (navigate)
+            // Remove any existing handlers first to prevent duplicates
+            $('#sharedAccountsContent').off('click', '.shared-folder-thumbnail');
+            $('#sharedAccountsContent').on('click', '.shared-folder-thumbnail', function(e) {
+                // Prevent event bubbling to parent handlers
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                
+                const $folder = $(this);
+                const folderPath = $folder.attr('data-folder-path');
+                const accountAddress = $folder.attr('data-account');
+                
+                // Validate we have the required data
+                if (!folderPath || !accountAddress) {
+                    console.warn('Missing folder path or account address:', { folderPath, accountAddress });
+                    return;
+                }
+                
+                console.log('Navigating to shared folder:', { accountAddress, folderPath });
+                // Navigate into the shared folder
+                fetchSharedFiles(accountAddress, requesterAddress, indexerAddress, protocol, folderPath);
+            });
             
             // Attach event handlers for files (download)
             $('#sharedAccountsContent').off('click', '.download-shared-btn');
@@ -433,6 +510,10 @@ async function fetchSharedFiles(accountAddress: string, requesterAddress: string
         $content.addClass('d-none');
         $errorText.text(errorMessage);
         $error.removeClass('d-none');
+    } finally {
+        // Reset fetch state
+        isFetchingSharedFiles = false;
+        currentFetchKey = '';
     }
 }
 
@@ -442,19 +523,23 @@ function buildSharedBreadcrumbs(accountAddress: string, currentPath: string): st
         { name: 'Shared Accounts', path: '' }
     ];
     
+    // Always add the account address as the root
+    segments.push({ name: accountAddress.substring(0, 12) + '...', path: '/' });
+    
+    // Add path segments if we're in a subdirectory
     if (currentPath && currentPath !== '/') {
         const pathSegments = currentPath.split('/').filter(seg => seg !== '');
         let accumulatedPath = '';
         
         pathSegments.forEach((segment, index) => {
             accumulatedPath += '/' + segment;
+            // Ensure directory paths end with /
+            const segmentPath = accumulatedPath + (index < pathSegments.length - 1 ? '/' : '');
             segments.push({
                 name: segment,
-                path: accumulatedPath + (index < pathSegments.length - 1 ? '/' : '')
+                path: segmentPath
             });
         });
-    } else {
-        segments.push({ name: accountAddress.substring(0, 12) + '...', path: '/' });
     }
     
     let breadcrumbItems = '';
