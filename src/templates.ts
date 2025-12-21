@@ -49,11 +49,18 @@ export function getFileThumbnailTemplate(
     merkleRoot: string,
     contentType: string,
     isExpired: boolean,
-    fileIcon: string
+    fileIcon: string,
+    extraData?: string
 ): string {
+    // Escape extra_data for HTML attribute (handle quotes and special characters)
+    const escapedExtraData = extraData ? extraData.replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/\n/g, '&#10;') : '';
+    const hasDashManifest = extraData && extraData.includes('<?xml') && extraData.includes('MPD');
+    
     return `
         <div class="col-md-3 col-sm-4 col-6 mb-4">
-            <div class="card h-100 file-thumbnail ${isExpired ? 'border-warning' : ''}" style="transition: transform 0.2s;">
+            <div class="card h-100 file-thumbnail ${isExpired ? 'border-warning' : ''}" 
+                 style="transition: transform 0.2s;"
+                 ${extraData ? `data-extra-data="${escapedExtraData}"` : ''}>
                 <div class="card-body text-center p-3">
                     <div class="file-icon mb-2" style="color: #6c757d;">
                         ${fileIcon}
@@ -61,6 +68,7 @@ export function getFileThumbnailTemplate(
                     <h6 class="card-title mb-1 text-truncate" style="font-size: 0.9rem;" title="${fileName}">${fileName}</h6>
                     <p class="text-muted small mb-1">${fileSize}</p>
                     ${isExpired ? '<span class="badge bg-warning text-dark mb-2">Expired</span>' : ''}
+                    ${hasDashManifest ? '<span class="badge bg-success mb-2" title="MPEG-DASH manifest available">DASH</span>' : ''}
                     <div class="mt-2 d-flex gap-2 justify-content-center">
                         <button class="btn btn-sm btn-primary download-btn" data-merkle-root="${merkleRoot}" data-file-name="${fileName}" title="Download">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -108,11 +116,18 @@ export function getSharedFileThumbnailTemplate(
     merkleRoot: string,
     contentType: string,
     isExpired: boolean,
-    fileIcon: string
+    fileIcon: string,
+    extraData?: string
 ): string {
+    // Escape extra_data for HTML attribute (handle quotes and special characters)
+    const escapedExtraData = extraData ? extraData.replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/\n/g, '&#10;') : '';
+    const hasDashManifest = extraData && extraData.includes('<?xml') && extraData.includes('MPD');
+    
     return `
         <div class="col-md-3 col-sm-4 col-6 mb-4">
-            <div class="card h-100 file-thumbnail ${isExpired ? 'border-warning' : ''}" style="transition: transform 0.2s;">
+            <div class="card h-100 file-thumbnail ${isExpired ? 'border-warning' : ''}" 
+                 style="transition: transform 0.2s;"
+                 ${extraData ? `data-extra-data="${escapedExtraData}"` : ''}>
                 <div class="card-body text-center p-3">
                     <div class="file-icon mb-2" style="color: #6c757d;">
                         ${fileIcon}
@@ -120,6 +135,7 @@ export function getSharedFileThumbnailTemplate(
                     <h6 class="card-title mb-1 text-truncate" style="font-size: 0.9rem;" title="${fileName}">${fileName}</h6>
                     <p class="text-muted small mb-1">${fileSize}</p>
                     ${isExpired ? '<span class="badge bg-warning text-dark mb-2">Expired</span>' : ''}
+                    ${hasDashManifest ? '<span class="badge bg-success mb-2" title="MPEG-DASH manifest available">DASH</span>' : ''}
                     <div class="mt-2 d-flex gap-2 justify-content-center">
                         <button class="btn btn-sm btn-primary download-shared-btn" data-merkle-root="${merkleRoot}" data-file-name="${fileName}" title="Download">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

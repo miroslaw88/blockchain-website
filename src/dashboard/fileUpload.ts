@@ -6,6 +6,7 @@ import { postFile } from '../postFile';
 import { submitChunkMetadata } from '../submitChunkMetadata';
 import { fetchFiles } from '../fetchFiles';
 import { showUploadProgressToast, updateUploadingFileProgress, finalizeUploadingFile } from './uploadProgress';
+import { generateDashManifest } from './generateDashManifest';
 
 // Flag to prevent concurrent uploads
 let isUploading = false;
@@ -42,7 +43,7 @@ async function uploadChunkToStorageProvider(
     formData.append('metadata', JSON.stringify(metadata));
     formData.append('transaction_hash', transactionHash);
     
-    const uploadUrl = `https://storage.datavault.space/api/storage/v1/files/upload`;
+    const uploadUrl = `https://storage.datavault.space/api/storage/files/upload`;
     console.log('Upload URL:', uploadUrl);
 
     try {
@@ -114,6 +115,20 @@ export async function uploadFile(file: File): Promise<void> {
         const fileData = await file.arrayBuffer();
         const originalFileHash = await calculateMerkleRoot(fileData);
 
+        // Step 2.5: Generate MPEG-DASH manifest for video files (before encryption)
+        let dashManifest: string | null = null;
+        if (file.type.startsWith('video/')) {
+            updateUploadingFileProgress(uploadId, 7, 'Generating MPEG-DASH manifest...');
+            try {
+                dashManifest = await generateDashManifest(file);
+                console.log('MPEG-DASH manifest generated successfully');
+                console.log('Generated MPEG-DASH Manifest:', dashManifest);
+            } catch (error) {
+                console.warn('Failed to generate MPEG-DASH manifest:', error);
+                // Continue with upload even if manifest generation fails
+            }
+        }
+
         // Step 3: Generate per-file AES bundle and encrypt file
         updateUploadingFileProgress(uploadId, 10, 'Generating file encryption key...');
         
@@ -184,7 +199,8 @@ export async function uploadFile(file: File): Promise<void> {
             expirationTime,
             3,
             metadata,
-            encryptedFileKeyBase64
+            encryptedFileKeyBase64,
+            dashManifest || undefined
         );
 
         // Step 7: Upload chunks to storage provider (use providers from transaction response)
@@ -205,7 +221,7 @@ export async function uploadFile(file: File): Promise<void> {
             console.log('Total encrypted size:', totalEncryptedSize, 'bytes');
             console.log('Number of chunks:', encryptedChunks.length);
             console.log('Combined merkle root:', combinedMerkleRoot);
-            console.log('Preparing to upload chunks to:', `https://storage.datavault.space/api/storage/v1/files/upload`);
+            console.log('Preparing to upload chunks to:', `https://storage.datavault.space/api/storage/files/upload`);
             
             // Upload chunks with progress updates
             const totalChunks = encryptedChunks.length;

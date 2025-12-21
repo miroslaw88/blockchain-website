@@ -102,6 +102,8 @@ export async function fetchFiles(walletAddress: string, path: string = ''): Prom
             max_proofs?: string;
             metadata?: string;
             uploaded_at?: string;
+            extraData?: string;
+            encrypted_file_key?: string;
         }> = data.entries || [];
         
         // Store current path in sessionStorage for uploads (even if no entries)
@@ -193,6 +195,8 @@ export async function fetchFiles(walletAddress: string, path: string = ''): Prom
                 const merkleRoot = entry.merkle_root || '';
                 // Get encrypted file key from indexer response
                 const encryptedFileKey = entry.encrypted_file_key || '';
+                // Get extraData from indexer response (e.g., MPEG-DASH manifest)
+                const extraData = entry.extraData || '';
                 
                 // Generate thumbnail HTML and add encrypted_file_key as data attribute
                 const thumbnailHTML = getFileThumbnailTemplate(
@@ -203,7 +207,8 @@ export async function fetchFiles(walletAddress: string, path: string = ''): Prom
                     merkleRoot,
                     contentType,
                     isExpired,
-                    getFileIcon(contentType)
+                    getFileIcon(contentType),
+                    extraData || undefined
                 );
                 
                 // Add encrypted_file_key to all buttons' data attributes (download, share, delete)

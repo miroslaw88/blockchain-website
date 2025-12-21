@@ -141,6 +141,8 @@ export interface MsgPostFile {
   metadata: string;
   /** encrypted_file_key is the Base64 encoded encrypted key for file decryption. */
   encryptedFileKey: string;
+  /** extra_data is additional arbitrary data that will be emitted in the post_file event. */
+  extraData: string;
 }
 
 /**
@@ -1020,6 +1022,7 @@ function createBaseMsgPostFile(): MsgPostFile {
     maxProofs: 0,
     metadata: "",
     encryptedFileKey: "",
+    extraData: "",
   };
 }
 
@@ -1045,6 +1048,9 @@ export const MsgPostFile: MessageFns<MsgPostFile> = {
     }
     if (message.encryptedFileKey !== "") {
       writer.uint32(58).string(message.encryptedFileKey);
+    }
+    if (message.extraData !== "") {
+      writer.uint32(66).string(message.extraData);
     }
     return writer;
   },
@@ -1112,6 +1118,14 @@ export const MsgPostFile: MessageFns<MsgPostFile> = {
           message.encryptedFileKey = reader.string();
           continue;
         }
+        case 8: {
+          if (tag !== 66) {
+            break;
+          }
+
+          message.extraData = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1130,6 +1144,7 @@ export const MsgPostFile: MessageFns<MsgPostFile> = {
       maxProofs: isSet(object.maxProofs) ? globalThis.Number(object.maxProofs) : 0,
       metadata: isSet(object.metadata) ? globalThis.String(object.metadata) : "",
       encryptedFileKey: isSet(object.encryptedFileKey) ? globalThis.String(object.encryptedFileKey) : "",
+      extraData: isSet(object.extraData) ? globalThis.String(object.extraData) : "",
     };
   },
 
@@ -1156,6 +1171,9 @@ export const MsgPostFile: MessageFns<MsgPostFile> = {
     if (message.encryptedFileKey !== "") {
       obj.encryptedFileKey = message.encryptedFileKey;
     }
+    if (message.extraData !== "") {
+      obj.extraData = message.extraData;
+    }
     return obj;
   },
 
@@ -1171,6 +1189,7 @@ export const MsgPostFile: MessageFns<MsgPostFile> = {
     message.maxProofs = object.maxProofs ?? 0;
     message.metadata = object.metadata ?? "";
     message.encryptedFileKey = object.encryptedFileKey ?? "";
+    message.extraData = object.extraData ?? "";
     return message;
   },
 };

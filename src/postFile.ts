@@ -15,7 +15,8 @@ export async function postFile(
     expirationTime: number,
     maxProofs: number,
     metadata: { name: string; content_type: string },
-    encryptedFileKey: string
+    encryptedFileKey: string,
+    extraData?: string
 ): Promise<PostFileResult> {
     const keplr = getKeplr();
     if (!keplr) {
@@ -67,17 +68,24 @@ export async function postFile(
 
     // Create message using the generated type
     // Note: encryptedFileKey will be added to the generated types after protobuf update
+    const msgValue: any = {
+        owner: userAddress,
+        merkleRoot: merkleRoot,  // Note: camelCase (not snake_case)
+        sizeBytes: sizeBytes,  // number, not string
+        expirationTime: expirationTime,  // number
+        maxProofs: maxProofs,  // number
+        metadata: JSON.stringify(metadata),
+        encryptedFileKey: encryptedFileKey
+    };
+    
+    // Add extraData field if provided (e.g., MPEG-DASH manifest)
+    if (extraData !== undefined) {
+        msgValue.extraData = extraData;
+    }
+    
     const msg = {
         typeUrl: '/osdblockchain.osdblockchain.v1.MsgPostFile',
-        value: MsgPostFile.fromPartial({
-            owner: userAddress,
-            merkleRoot: merkleRoot,  // Note: camelCase (not snake_case)
-            sizeBytes: sizeBytes,  // number, not string
-            expirationTime: expirationTime,  // number
-            maxProofs: maxProofs,  // number
-            metadata: JSON.stringify(metadata),
-            encryptedFileKey: encryptedFileKey
-        } as any) // Type assertion needed until generated types are updated
+        value: MsgPostFile.fromPartial(msgValue as any) // Type assertion needed until generated types are updated
     };
 
     // Send transaction

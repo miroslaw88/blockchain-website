@@ -385,6 +385,9 @@ async function fetchSharedFiles(accountAddress: string, requesterAddress: string
                 // This is the key encrypted with the recipient's public key
                 const encryptedFileKey = entry.encrypted_file_key || '';
                 
+                // Get extraData from entry (e.g., MPEG-DASH manifest)
+                const extraData = entry.extraData || '';
+                
                 // Get storage providers from entry
                 // The indexer returns storage_providers array in the entry object
                 const storageProviders: Array<{ provider_id?: string; provider_address?: string }> = entry.storage_providers || [];
@@ -394,6 +397,7 @@ async function fetchSharedFiles(accountAddress: string, requesterAddress: string
                     hasEncryptedFileKey: !!encryptedFileKey,
                     encryptedFileKeyLength: encryptedFileKey.length,
                     encryptedFileKeyPreview: encryptedFileKey.substring(0, 30) + '...',
+                    hasExtraData: !!extraData,
                     storageProvidersCount: storageProviders.length,
                     storageProviders: storageProviders,
                     entryKeys: Object.keys(entry)
@@ -410,7 +414,8 @@ async function fetchSharedFiles(accountAddress: string, requesterAddress: string
                     merkleRoot,
                     contentType,
                     isExpired,
-                    getFileIcon(contentType)
+                    getFileIcon(contentType),
+                    extraData || undefined
                 ).replace(
                     'data-merkle-root="' + merkleRoot + '"',
                     `data-merkle-root="${merkleRoot}" data-storage-providers='${JSON.stringify(storageProviders)}' data-file-metadata='${JSON.stringify(metadata)}' data-encrypted-file-key="${escapedEncryptedKey}"`
