@@ -50,7 +50,8 @@ export function getFileThumbnailTemplate(
     contentType: string,
     isExpired: boolean,
     fileIcon: string,
-    extraData?: string
+    extraData?: string,
+    chunkCount?: number
 ): string {
     // Escape extra_data for HTML attribute (handle quotes and special characters)
     const escapedExtraData = extraData ? extraData.replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/\n/g, '&#10;') : '';
@@ -60,7 +61,8 @@ export function getFileThumbnailTemplate(
         <div class="col-md-3 col-sm-4 col-6 mb-4">
             <div class="card h-100 file-thumbnail ${isExpired ? 'border-warning' : ''}" 
                  style="transition: transform 0.2s;"
-                 ${extraData ? `data-extra-data="${escapedExtraData}"` : ''}>
+                 ${extraData ? `data-extra-data="${escapedExtraData}"` : ''}
+                 ${chunkCount ? `data-chunk-count="${chunkCount}"` : ''}>
                 <div class="card-body text-center p-3">
                     <div class="file-icon mb-2" style="color: #6c757d;">
                         ${fileIcon}
@@ -70,6 +72,13 @@ export function getFileThumbnailTemplate(
                     ${isExpired ? '<span class="badge bg-warning text-dark mb-2">Expired</span>' : ''}
                     ${hasDashManifest ? '<span class="badge bg-success mb-2" title="MPEG-DASH manifest available">DASH</span>' : ''}
                     <div class="mt-2 d-flex gap-2 justify-content-center">
+                        ${contentType.startsWith('video/') ? `
+                        <button class="btn btn-sm btn-success play-video-btn" data-merkle-root="${merkleRoot}" data-file-name="${fileName}" title="Play">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                            </svg>
+                        </button>
+                        ` : ''}
                         <button class="btn btn-sm btn-primary download-btn" data-merkle-root="${merkleRoot}" data-file-name="${fileName}" title="Download">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -815,6 +824,40 @@ export function getECIESKeySetupModalTemplate(): string {
                             <span id="generateECIESKeyBtnText">Generate ECIES Key</span>
                             <span id="generateECIESKeySpinner" class="spinner-border spinner-border-sm ms-2 d-none" role="status"></span>
                         </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Video Player Modal Template
+ */
+export function getVideoPlayerModalTemplate(fileName: string): string {
+    return `
+        <div class="modal fade" id="videoPlayerModal" tabindex="-1" aria-labelledby="videoPlayerModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-lg modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="videoPlayerModalLabel">${fileName}</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="ratio ratio-16x9">
+                            <video id="videoPlayer" controls style="width: 100%; height: 100%; background: #000;">
+                                Your browser does not support the video tag.
+                            </video>
+                        </div>
+                        <div id="videoPlayerStatus" class="mt-2 text-center">
+                            <div class="spinner-border spinner-border-sm text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <span class="ms-2">Loading video...</span>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
                     </div>
                 </div>
             </div>

@@ -17,6 +17,7 @@ import { showDeleteFileModal, showDeleteFolderModal } from './deleteOperations';
 import { showShareFileModal } from './shareFileOperations';
 import { showSharedAccountsModal } from './sharedAccounts';
 import { showCreateFolderModal } from './createFolder';
+import { showVideoPlayerModal } from './videoPlayer';
 
 // Fetch files from blockchain
 // path: Optional path to navigate into a specific folder (e.g., "/test/")
@@ -102,8 +103,10 @@ export async function fetchFiles(walletAddress: string, path: string = ''): Prom
             max_proofs?: string;
             metadata?: string;
             uploaded_at?: string;
+            extra_data?: string;
             extraData?: string;
             encrypted_file_key?: string;
+            chunk_count?: number;
         }> = data.entries || [];
         
         // Store current path in sessionStorage for uploads (even if no entries)
@@ -195,8 +198,29 @@ export async function fetchFiles(walletAddress: string, path: string = ''): Prom
                 const merkleRoot = entry.merkle_root || '';
                 // Get encrypted file key from indexer response
                 const encryptedFileKey = entry.encrypted_file_key || '';
+                // Get chunk_count from indexer response
+                const chunkCount = entry.chunk_count || 1;
                 // Get extraData from indexer response (e.g., MPEG-DASH manifest)
-                const extraData = entry.extraData || '';
+                // Support both snake_case (from API) and camelCase
+                const extraDataRaw = entry.extra_data || entry.extraData || '';
+                // Decode Unicode escape sequences and HTML entities
+                // The API may return Unicode escapes like \u003c (<) and \u003e (>)
+                let extraData = extraDataRaw;
+                if (extraDataRaw) {
+                    // Try to decode as JSON string first (handles all Unicode escapes)
+                    try {
+                        extraData = JSON.parse(`"${extraDataRaw.replace(/"/g, '\\"')}"`);
+                    } catch (e) {
+                        // If JSON parsing fails, manually decode common escapes
+                        extraData = extraDataRaw
+                            .replace(/\\u003c/g, '<')
+                            .replace(/\\u003e/g, '>')
+                            .replace(/\\u0026/g, '&')
+                            .replace(/\\n/g, '\n')
+                            .replace(/\\"/g, '"')
+                            .replace(/\\'/g, "'");
+                    }
+                }
                 
                 // Generate thumbnail HTML and add encrypted_file_key as data attribute
                 const thumbnailHTML = getFileThumbnailTemplate(
@@ -208,7 +232,8 @@ export async function fetchFiles(walletAddress: string, path: string = ''): Prom
                     contentType,
                     isExpired,
                     getFileIcon(contentType),
-                    extraData || undefined
+                    extraData || undefined,
+                    chunkCount
                 );
                 
                 // Add encrypted_file_key to all buttons' data attributes (download, share, delete)
@@ -341,6 +366,45 @@ function attachEventHandlers(walletAddress: string, currentPath: string): void {
         }
         console.log('Navigating to path:', targetPath);
         fetchFiles(walletAddress, targetPath);
+    });
+    
+    // Add click handler for play video buttons
+    $contentArea.off('click', '.play-video-btn');
+    $contentArea.on('click', '.play-video-btn', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const $button = $(this);
+        const merkleRoot = $button.attr('data-merkle-root');
+        const fileName = $button.attr('data-file-name') || 'file';
+        
+        if (!merkleRoot) {
+            showToast('File identifier not found', 'error');
+            return;
+        }
+        
+        // Get extra_data (MPEG-DASH manifest) and chunk_count from the thumbnail card
+        const $thumbnail = $button.closest('.file-thumbnail');
+        const extraData = $thumbnail.attr('data-extra-data');
+        const chunkCountAttr = $thumbnail.attr('data-chunk-count');
+        const chunkCount = chunkCountAttr ? parseInt(chunkCountAttr, 10) : undefined;
+        
+        if (!extraData) {
+            showToast('Video manifest not found', 'error');
+            return;
+        }
+        
+        // Decode HTML entities and Unicode escape sequences
+        const decodedExtraData = extraData
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'")
+            .replace(/&#10;/g, '\n')
+            .replace(/\\u003c/g, '<')
+            .replace(/\\u003e/g, '>')
+            .replace(/\\n/g, '\n')
+            .replace(/\\"/g, '"');
+        
+        // Show video player modal
+        showVideoPlayerModal(merkleRoot, fileName, decodedExtraData, chunkCount);
     });
     
     // Add click handler for share file buttons
