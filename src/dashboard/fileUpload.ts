@@ -208,41 +208,95 @@ export async function uploadFile(file: File): Promise<void> {
             console.log('=== Storage Provider Upload ===');
             console.log('Providers received:', postFileResult.providers);
             console.log('Primary provider index:', postFileResult.primaryProviderIndex);
-            
-            // Use primary provider index if available, otherwise use first provider
-            const providerIndex = postFileResult.primaryProviderIndex >= 0 
-                ? postFileResult.primaryProviderIndex 
-                : 0;
-            const provider = postFileResult.providers[providerIndex];
-            
-            console.log('Selected provider index:', providerIndex);
-            console.log('Selected provider:', provider);
-            console.log('Provider address:', provider.providerAddress);
             console.log('Total encrypted size:', totalEncryptedSize, 'bytes');
             console.log('Number of chunks:', encryptedChunks.length);
             console.log('Combined merkle root:', combinedMerkleRoot);
-            console.log('Preparing to upload chunks to:', `https://storage.datavault.space/api/storage/files/upload`);
             
-            // Upload chunks with progress updates
+            // Start with primary provider if available, otherwise start from first provider
+            const startProviderIndex = postFileResult.primaryProviderIndex >= 0 
+                ? postFileResult.primaryProviderIndex 
+                : 0;
+            
+            // Try each provider until one succeeds or all are exhausted
             const totalChunks = encryptedChunks.length;
-            updateUploadingFileProgress(uploadId, 50, 'Uploading to storage provider...');
+            let uploadSucceeded = false;
+            let lastError: Error | null = null;
             
-            for (let i = 0; i < encryptedChunks.length; i++) {
-                // Update progress (50-90% for chunk uploads)
-                const chunkProgress = 50 + ((i + 1) / totalChunks) * 40;
-                updateUploadingFileProgress(uploadId, chunkProgress, `Uploading chunk ${i + 1}/${totalChunks}...`);
+            // Create ordered list starting with primary provider, then others
+            const providerOrder: number[] = [];
+            if (startProviderIndex >= 0 && startProviderIndex < postFileResult.providers.length) {
+                providerOrder.push(startProviderIndex);
+            }
+            for (let i = 0; i < postFileResult.providers.length; i++) {
+                if (i !== startProviderIndex) {
+                    providerOrder.push(i);
+                }
+            }
+            
+            for (let providerAttempt = 0; providerAttempt < providerOrder.length; providerAttempt++) {
+                const providerIndex = providerOrder[providerAttempt];
+                const provider = postFileResult.providers[providerIndex];
                 
-                await uploadChunkToStorageProvider(
-                    provider.providerAddress, 
-                    encryptedChunks[i], 
-                    i,
-                    totalChunks,
-                    combinedMerkleRoot, // Combined merkle root for file identification
-                    chunkMerkleRoots[i], // Individual chunk merkle root for validation
-                    userAddress,
-                    expirationTime,
-                    metadata,
-                    postFileResult.transactionHash // Pass transaction hash
+                console.log(`=== Attempting upload with provider ${providerAttempt + 1}/${providerOrder.length} ===`);
+                console.log('Provider index:', providerIndex);
+                console.log('Provider address:', provider.providerAddress);
+                console.log('Preparing to upload chunks to:', `https://storage.datavault.space/api/storage/files/upload`);
+                
+                try {
+                    updateUploadingFileProgress(
+                        uploadId, 
+                        50, 
+                        `Uploading to provider ${providerAttempt + 1}/${providerOrder.length}...`
+                    );
+                    
+                    // Try uploading all chunks to this provider
+                    for (let i = 0; i < encryptedChunks.length; i++) {
+                        // Update progress (50-90% for chunk uploads)
+                        const chunkProgress = 50 + ((i + 1) / totalChunks) * 40;
+                        updateUploadingFileProgress(
+                            uploadId, 
+                            chunkProgress, 
+                            `Uploading chunk ${i + 1}/${totalChunks} to provider ${providerAttempt + 1}/${providerOrder.length}...`
+                        );
+                        
+                        await uploadChunkToStorageProvider(
+                            provider.providerAddress, 
+                            encryptedChunks[i], 
+                            i,
+                            totalChunks,
+                            combinedMerkleRoot, // Combined merkle root for file identification
+                            chunkMerkleRoots[i], // Individual chunk merkle root for validation
+                            userAddress,
+                            expirationTime,
+                            metadata,
+                            postFileResult.transactionHash // Pass transaction hash
+                        );
+                    }
+                    
+                    // All chunks uploaded successfully to this provider
+                    console.log(`Upload to storage provider ${providerIndex} (${provider.providerAddress}) completed successfully`);
+                    uploadSucceeded = true;
+                    break; // Exit provider loop, proceed to next step
+                    
+                } catch (error) {
+                    lastError = error instanceof Error ? error : new Error(String(error));
+                    console.error(`Upload failed for provider ${providerIndex} (${provider.providerAddress}):`, lastError);
+                    
+                    if (providerAttempt < providerOrder.length - 1) {
+                        console.log(`Retrying with next available provider...`);
+                        // Continue to next provider
+                    } else {
+                        console.error('All providers exhausted. Upload failed.');
+                        // Will throw error after loop
+                    }
+                }
+            }
+            
+            // If upload failed for all providers, throw error
+            if (!uploadSucceeded) {
+                throw new Error(
+                    `Failed to upload to all ${providerOrder.length} available provider(s). ` +
+                    `Last error: ${lastError?.message || 'Unknown error'}`
                 );
             }
             
