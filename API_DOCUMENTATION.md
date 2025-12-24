@@ -446,12 +446,12 @@ if (txQuery && txQuery.events) {
 
 **Production:**
 ```
-POST https://storage.datavault.space/api/v1/files/upload
+POST https://storage.datavault.space/api/storage/files/upload
 ```
 
 **Direct (if Caddy not configured):**
 ```
-POST http://{providerAddress}/api/v1/files/upload
+POST http://{providerAddress}/api/storage/files/upload
 ```
 
 ### Upload Request
@@ -478,7 +478,7 @@ formData.append('metadata', JSON.stringify({
   content_type: file.type || 'application/octet-stream'
 }));
 
-const response = await fetch('https://storage.datavault.space/api/v1/files/upload', {
+const response = await fetch('https://storage.datavault.space/api/storage/files/upload', {
   method: 'POST',
   body: formData
 });
@@ -731,7 +731,7 @@ async function uploadFile(file: File): Promise<void> {
       content_type: file.type || 'application/octet-stream'
     }));
 
-    const uploadUrl = `https://storage.datavault.space/api/v1/files/upload`;
+    const uploadUrl = `https://storage.datavault.space/api/storage/files/upload`;
     const response = await fetch(uploadUrl, {
       method: 'POST',
       body: formData
@@ -803,7 +803,7 @@ async function loadUserFiles() {
 5. **Provider Upload Failures:**
    - Verify all required FormData fields are present
    - Check provider address format
-   - Ensure Caddy routes `/api/v1/files/upload` correctly
+   - Ensure Caddy routes `/api/storage/files/upload` correctly
 
 ---
 

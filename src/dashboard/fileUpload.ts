@@ -43,7 +43,31 @@ async function uploadChunkToStorageProvider(
     formData.append('metadata', JSON.stringify(metadata));
     formData.append('transaction_hash', transactionHash);
     
-    const uploadUrl = `https://storage.datavault.space/api/storage/files/upload`;
+    // Construct upload URL from provider address
+    // Provider address format: "24.150.228.114:8088" or "example.com:8088" or "https://example.com:8088"
+    // Remove port from address as Caddy handles routing
+    let uploadUrl: string;
+    if (providerAddress.startsWith('http://') || providerAddress.startsWith('https://')) {
+        // Provider address already includes protocol - remove port if present
+        const url = new URL(providerAddress);
+        url.port = ''; // Remove port
+        uploadUrl = `${url.origin}/api/storage/files/upload`;
+    } else {
+        // Extract hostname (remove port if present)
+        const hostname = providerAddress.split(':')[0];
+        
+        // Check if it's an IP address (simple check: contains only digits and dots)
+        const isIPAddress = /^\d+\.\d+\.\d+\.\d+$/.test(hostname);
+        
+        // Use HTTPS for IP addresses (Caddy handles TLS), HTTPS for domains without port
+        if (isIPAddress) {
+            // IP address - use HTTPS (Caddy handles TLS)
+            uploadUrl = `https://${hostname}/api/storage/files/upload`;
+        } else {
+            // Domain - use HTTPS
+            uploadUrl = `https://${hostname}/api/storage/files/upload`;
+        }
+    }
     console.log('Upload URL:', uploadUrl);
 
     try {
@@ -237,10 +261,33 @@ export async function uploadFile(file: File): Promise<void> {
                 const providerIndex = providerOrder[providerAttempt];
                 const provider = postFileResult.providers[providerIndex];
                 
+                // Construct upload URL from provider address for logging
+                // Remove port from address as Caddy handles routing
+                let providerUploadUrl: string;
+                if (provider.providerAddress.startsWith('http://') || provider.providerAddress.startsWith('https://')) {
+                    // Provider address already includes protocol - remove port if present
+                    const url = new URL(provider.providerAddress);
+                    url.port = ''; // Remove port
+                    providerUploadUrl = `${url.origin}/api/storage/files/upload`;
+                } else {
+                    // Extract hostname (remove port if present)
+                    const hostname = provider.providerAddress.split(':')[0];
+                    
+                    // Check if it's an IP address
+                    const isIPAddress = /^\d+\.\d+\.\d+\.\d+$/.test(hostname);
+                    
+                    // Use HTTPS for IP addresses (Caddy handles TLS), HTTPS for domains
+                    if (isIPAddress) {
+                        providerUploadUrl = `https://${hostname}/api/storage/files/upload`;
+                    } else {
+                        providerUploadUrl = `https://${hostname}/api/storage/files/upload`;
+                    }
+                }
+                
                 console.log(`=== Attempting upload with provider ${providerAttempt + 1}/${providerOrder.length} ===`);
                 console.log('Provider index:', providerIndex);
                 console.log('Provider address:', provider.providerAddress);
-                console.log('Preparing to upload chunks to:', `https://storage.datavault.space/api/storage/files/upload`);
+                console.log('Preparing to upload chunks to:', providerUploadUrl);
                 
                 try {
                     updateUploadingFileProgress(

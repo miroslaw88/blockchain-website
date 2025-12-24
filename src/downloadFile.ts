@@ -451,13 +451,25 @@ export async function downloadSharedFile(
         const fileName = metadata.original_name || 'file';
         
         // Download complete file (server returns multipart with chunks)
+        // Remove port from provider address as Caddy handles routing
         let downloadUrl: string;
         if (providerAddress.includes('storage.datavault.space')) {
             // Use Caddy proxy
             downloadUrl = `https://storage.datavault.space/api/storage/files/download?merkle_root=${merkleRoot}`;
         } else {
-            // Direct provider address
-            const baseUrl = providerAddress.startsWith('http') ? providerAddress : `https://${providerAddress}`;
+            // Extract hostname (remove port if present)
+            let baseUrl: string;
+            if (providerAddress.startsWith('http://') || providerAddress.startsWith('https://')) {
+                const url = new URL(providerAddress);
+                url.port = ''; // Remove port
+                // Use HTTPS protocol (Caddy handles TLS)
+                baseUrl = `https://${url.hostname}`;
+            } else {
+                // Remove port from address
+                const hostname = providerAddress.split(':')[0];
+                baseUrl = `https://${hostname}`;
+            }
+            
             downloadUrl = `${baseUrl}/api/storage/files/download?merkle_root=${merkleRoot}`;
         }
         
@@ -622,13 +634,25 @@ export async function downloadFile(fileMetadata: any, walletAddress: string, $bu
         }
         
         // Download complete file (server returns multipart with chunks)
+        // Remove port from provider address as Caddy handles routing
         let downloadUrl: string;
         if (providerAddress.includes('storage.datavault.space')) {
             // Use Caddy proxy
             downloadUrl = `https://storage.datavault.space/api/storage/files/download?merkle_root=${merkleRoot}`;
         } else {
-            // Direct provider address
-            const baseUrl = providerAddress.startsWith('http') ? providerAddress : `https://${providerAddress}`;
+            // Extract hostname (remove port if present)
+            let baseUrl: string;
+            if (providerAddress.startsWith('http://') || providerAddress.startsWith('https://')) {
+                const url = new URL(providerAddress);
+                url.port = ''; // Remove port
+                // Use HTTPS protocol (Caddy handles TLS)
+                baseUrl = `https://${url.hostname}`;
+            } else {
+                // Remove port from address
+                const hostname = providerAddress.split(':')[0];
+                baseUrl = `https://${hostname}`;
+            }
+            
             downloadUrl = `${baseUrl}/api/storage/files/download?merkle_root=${merkleRoot}`;
         }
         
