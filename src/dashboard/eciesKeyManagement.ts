@@ -4,7 +4,6 @@ import { hasAccountKey } from '../accountKey';
 import { formatHexKey } from '../utils';
 import { getECIESKeySetupModalTemplate } from '../templates';
 import { showToast } from '../fetchFiles';
-import { requestTokensFromFaucet } from '../faucet';
 
 // Flag to prevent concurrent uploads
 let isUploadingECIESKey = false;
@@ -111,12 +110,19 @@ function showECIESKeySetupModal(walletAddress: string): void {
         return;
     }
 
-    // Set up button handlers
-    $('#generateECIESKeyBtn').off('click').on('click', async () => {
+    // Set up button handlers - scope to modal element to avoid conflicts with other buttons
+    const $modal = $(modalElement);
+    
+    // Use event delegation on the modal to ensure handlers work
+    $modal.off('click', '#generateECIESKeyBtn').on('click', '#generateECIESKeyBtn', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
         await handleECIESKeyGenerationFromModal(walletAddress);
     });
-
-    $('#getTokensBtn').off('click').on('click', async () => {
+    
+    $modal.off('click', '#getTokensBtn').on('click', '#getTokensBtn', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
         await handleGetTokensFromModal(walletAddress);
     });
 
@@ -126,6 +132,48 @@ function showECIESKeySetupModal(walletAddress: string): void {
         keyboard: false
     });
     modal.show();
+}
+
+// Handle Get Tokens button click from modal
+async function handleGetTokensFromModal(walletAddress: string): Promise<void> {
+    const $button = $('#getTokensBtn');
+    const $buttonText = $('#getTokensBtnText');
+    const $spinner = $('#getTokensSpinner');
+    const $status = $('#eciesKeySetupStatus');
+    const $statusText = $('#eciesKeySetupStatusText');
+
+    // Disable button and show loading state
+    $button.prop('disabled', true);
+    $buttonText.text('Requesting...');
+    $spinner.removeClass('d-none');
+    $status.removeClass('d-none');
+    $status.removeClass('alert-success alert-danger').addClass('alert-info');
+    $statusText.text('Requesting tokens from faucet...');
+
+    try {
+        const { requestTokensFromFaucet } = await import('../faucet');
+        const result = await requestTokensFromFaucet(walletAddress, '1000000');
+
+        if (result.success) {
+            const message = result.tx_hash 
+                ? `Tokens requested successfully! Transaction: ${result.tx_hash.substring(0, 16)}...`
+                : result.message || 'Tokens requested successfully!';
+            $statusText.text(message);
+            $status.removeClass('alert-info').addClass('alert-success');
+        } else {
+            $statusText.text(`Error: ${result.error || 'Failed to request tokens from faucet'}`);
+            $status.removeClass('alert-info').addClass('alert-danger');
+        }
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Failed to request tokens';
+        $statusText.text(`Error: ${errorMessage}`);
+        $status.removeClass('alert-info').addClass('alert-danger');
+    } finally {
+        // Re-enable button
+        $button.prop('disabled', false);
+        $buttonText.text('Get Tokens');
+        $spinner.addClass('d-none');
+    }
 }
 
 // Handle ECIES key generation from modal
@@ -192,48 +240,6 @@ async function handleECIESKeyGenerationFromModal(walletAddress: string): Promise
         $spinner.addClass('d-none');
     } finally {
         isUploadingECIESKey = false;
-    }
-}
-
-// Handle get tokens from modal
-async function handleGetTokensFromModal(walletAddress: string): Promise<void> {
-    const $button = $('#getTokensBtn');
-    const $buttonText = $('#getTokensBtnText');
-    const $spinner = $('#getTokensSpinner');
-    const $status = $('#eciesKeySetupStatus');
-    const $statusText = $('#eciesKeySetupStatusText');
-
-    // Disable button and show spinner
-    $button.prop('disabled', true);
-    $spinner.removeClass('d-none');
-    $buttonText.text('Requesting...');
-    
-    // Show status
-    $status.removeClass('d-none').removeClass('alert-danger').addClass('alert-info');
-    $statusText.text('Requesting tokens from faucet...');
-
-    try {
-        const result = await requestTokensFromFaucet(walletAddress);
-        
-        if (result.success) {
-            $statusText.text(`Tokens sent successfully! ${result.tx_hash ? `Tx: ${result.tx_hash.substring(0, 8)}...` : ''}`);
-            $status.removeClass('alert-info').addClass('alert-success');
-            showToast(result.message || 'Tokens sent successfully!', 'success');
-        } else {
-            $statusText.text(`Failed to get tokens: ${result.error || 'Unknown error'}`);
-            $status.removeClass('alert-info').addClass('alert-danger');
-            showToast(`Failed to get tokens: ${result.error || 'Unknown error'}`, 'error');
-        }
-    } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        $statusText.text(`Error: ${errorMessage}`);
-        $status.removeClass('alert-info').addClass('alert-danger');
-        showToast(`Error requesting tokens: ${errorMessage}`, 'error');
-    } finally {
-        // Re-enable button
-        $button.prop('disabled', false);
-        $buttonText.text('Get Tokens');
-        $spinner.addClass('d-none');
     }
 }
 

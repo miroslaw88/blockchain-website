@@ -820,7 +820,7 @@ export function getECIESKeySetupModalTemplate(): string {
                         </div>
                     </div>
                     <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" id="getTokensBtn">
+                        <button type="button" class="btn btn-outline-secondary" id="getTokensBtn">
                             <span id="getTokensBtnText">Get Tokens</span>
                             <span id="getTokensSpinner" class="spinner-border spinner-border-sm ms-2 d-none" role="status"></span>
                         </button>
