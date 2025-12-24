@@ -6,6 +6,7 @@ import { postFile } from '../postFile';
 import { submitChunkMetadata } from '../submitChunkMetadata';
 import { fetchFiles } from '../fetchFiles';
 import { showUploadProgressToast, updateUploadingFileProgress, finalizeUploadingFile } from './uploadProgress';
+import { showToast } from '../fetchFiles';
 import { generateDashManifest } from './generateDashManifest';
 
 // Flag to prevent concurrent uploads
@@ -394,6 +395,9 @@ export async function uploadFile(file: File): Promise<void> {
 
         // Success - update progress to 100% and refresh files list
         updateUploadingFileProgress(uploadId, 100, 'Complete!');
+        
+        // Show success toast message
+        showToast(`File "${file.name}" uploaded successfully!`, 'success');
         
         // Remove uploading entry and refresh files list
         setTimeout(() => {
