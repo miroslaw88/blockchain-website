@@ -41,32 +41,53 @@ export async function fetchStorageStats(
         // Parse response - handle both snake_case and camelCase
         const address = data.address || walletAddress;
         
-        // Parse subscription (single object)
+        // Parse subscription (single object) - handle case where subscription is null/undefined
         const sub = data.subscription;
-        const subscription = {
-            id: sub.id || '',
-            storage_bytes: sub.storage_bytes || sub.storageBytes || '0',
-            start_time: sub.start_time || sub.startTime || '0',
-            end_time: sub.end_time || sub.endTime || '0',
-            duration_seconds: sub.duration_seconds || sub.durationSeconds || '0',
-            remaining_seconds: sub.remaining_seconds || sub.remainingSeconds || '0',
-            is_active: sub.is_active !== undefined ? sub.is_active : (sub.isActive !== undefined ? sub.isActive : false)
-        };
+        let subscription;
+        let totalStorageFormatted = '0 Bytes';
+        let remainingTime = 'No subscription';
+        let subscriptions: Array<{
+            id: string;
+            storage_bytes: string;
+            start_time: string;
+            end_time: string;
+            duration_seconds: string;
+            remaining_seconds: string;
+            is_active: boolean;
+        }> = [];
         
-        // Derive total storage from subscription's storage_bytes
-        const totalStorageBytes = parseInt(subscription.storage_bytes || '0', 10);
-        const totalStorageFormatted = formatFileSize(totalStorageBytes);
-        
-        // Format remaining time
-        const remainingSeconds = parseInt(subscription.remaining_seconds || '0', 10);
-        const daysRemaining = Math.floor(remainingSeconds / 86400);
-        const hoursRemaining = Math.floor((remainingSeconds % 86400) / 3600);
-        const remainingTime = remainingSeconds > 0 
-            ? `${daysRemaining} days, ${hoursRemaining} hours`
-            : 'Expired';
-        
-        // Convert to array format for template (which expects array but only uses first item)
-        const subscriptions = [subscription];
+        if (sub) {
+            // Subscription exists
+            subscription = {
+                id: sub.id || '',
+                storage_bytes: sub.storage_bytes || sub.storageBytes || '0',
+                start_time: sub.start_time || sub.startTime || '0',
+                end_time: sub.end_time || sub.endTime || '0',
+                duration_seconds: sub.duration_seconds || sub.durationSeconds || '0',
+                remaining_seconds: sub.remaining_seconds || sub.remainingSeconds || '0',
+                is_active: sub.is_active !== undefined ? sub.is_active : (sub.isActive !== undefined ? sub.isActive : false)
+            };
+            
+            // Derive total storage from subscription's storage_bytes
+            const totalStorageBytes = parseInt(subscription.storage_bytes || '0', 10);
+            totalStorageFormatted = formatFileSize(totalStorageBytes);
+            
+            // Format remaining time
+            const remainingSeconds = parseInt(subscription.remaining_seconds || '0', 10);
+            const daysRemaining = Math.floor(remainingSeconds / 86400);
+            const hoursRemaining = Math.floor((remainingSeconds % 86400) / 3600);
+            remainingTime = remainingSeconds > 0 
+                ? `${daysRemaining} days, ${hoursRemaining} hours`
+                : 'Expired';
+            
+            // Convert to array format for template (which expects array but only uses first item)
+            subscriptions = [subscription];
+        } else {
+            // No subscription - show empty state
+            totalStorageFormatted = '0 Bytes';
+            remainingTime = 'No subscription';
+            subscriptions = [];
+        }
         
         // Update stats area with all data
         $statsArea.html(getStorageStatsTemplate(

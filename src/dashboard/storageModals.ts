@@ -168,7 +168,10 @@ export async function showExtendStorageModal(showBuyStorageModalCallback: () => 
         if (response.ok) {
             const data = await response.json();
             const sub = data.subscription;
-            currentStorageBytes = parseInt(sub.storage_bytes || sub.storageBytes || '0', 10);
+            // Handle case where subscription is null/undefined
+            if (sub) {
+                currentStorageBytes = parseInt(sub.storage_bytes || sub.storageBytes || '0', 10);
+            }
         }
     } catch (error) {
         console.error('Error fetching storage info for payment calculation:', error);
