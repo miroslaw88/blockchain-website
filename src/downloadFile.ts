@@ -115,6 +115,99 @@ function parseHeaders(headerText: string): Record<string, string> {
     return headers;
 }
 
+// Helper function to construct download URL from provider address
+function constructDownloadUrl(providerAddress: string, merkleRoot: string): string {
+    // Remove port from provider address as Caddy handles routing
+    if (providerAddress.includes('storage.datavault.space')) {
+        // Use Caddy proxy
+        return `https://storage.datavault.space/api/storage/files/download?merkle_root=${merkleRoot}`;
+    } else {
+        // Extract hostname (remove port if present)
+        let baseUrl: string;
+        if (providerAddress.startsWith('http://') || providerAddress.startsWith('https://')) {
+            const url = new URL(providerAddress);
+            url.port = ''; // Remove port
+            // Use HTTPS protocol (Caddy handles TLS)
+            baseUrl = `https://${url.hostname}`;
+        } else {
+            // Remove port from address
+            const hostname = providerAddress.split(':')[0];
+            baseUrl = `https://${hostname}`;
+        }
+        
+        return `${baseUrl}/api/storage/files/download?merkle_root=${merkleRoot}`;
+    }
+}
+
+// Helper function to download encrypted file from a single provider
+async function downloadFromProvider(
+    providerAddress: string,
+    merkleRoot: string,
+    fileName: string,
+    $button?: JQuery<HTMLElement>
+): Promise<{ encryptedBlob: Blob; responseFileName: string; responseContentType: string }> {
+    const downloadUrl = constructDownloadUrl(providerAddress, merkleRoot);
+    console.log('Downloading encrypted file from:', downloadUrl);
+    
+    const encryptedResponse = await fetchWithTimeout(downloadUrl, 60000, {
+        method: 'GET'
+    }); // 60 second timeout for file download
+    
+    if (!encryptedResponse.ok) {
+        throw new Error(`Failed to download file: ${encryptedResponse.status} ${encryptedResponse.statusText}`);
+    }
+    
+    // Extract metadata from response headers
+    const responseFileName = encryptedResponse.headers.get('X-Original-Name') || fileName;
+    const responseContentType = encryptedResponse.headers.get('X-Content-Type') || '';
+    const totalChunksHeader = encryptedResponse.headers.get('X-Total-Chunks');
+    const contentType = encryptedResponse.headers.get('Content-Type') || '';
+    
+    // Check if response is multipart
+    if (contentType.includes('multipart/byteranges')) {
+        // Parse multipart response with progress updates
+        console.log('Parsing multipart response...');
+        
+        // Get total chunks from main response header
+        const totalChunksNum = totalChunksHeader ? parseInt(totalChunksHeader, 10) : null;
+        console.log('Total chunks from main response header:', totalChunksNum);
+        
+        // Replace button with progress bar if button is provided
+        let $progressContainer: JQuery<HTMLElement> | null = null;
+        const progressId = 'download-progress-' + Date.now();
+        
+        if ($button && $button.length > 0) {
+            const $buttonContainer = $button.parent(); // div.mt-2
+            $buttonContainer.html(`
+                <div class="progress" style="height: 20px; width: 100%;">
+                    <div id="${progressId}" class="progress-bar progress-bar-striped progress-bar-animated" 
+                         role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                        0%
+                    </div>
+                </div>
+            `);
+            $progressContainer = $(`#${progressId}`);
+        }
+        
+        // Progress callback
+        const progressCallback = (chunkIndex: number, total: number) => {
+            const progress = ((chunkIndex + 1) / total) * 100;
+            console.log(`Progress update: chunk ${chunkIndex + 1}/${total} = ${Math.round(progress)}%`);
+            if ($progressContainer && $progressContainer.length > 0) {
+                $progressContainer.css('width', `${progress}%`).attr('aria-valuenow', progress);
+                $progressContainer.text(`${Math.round(progress)}%`);
+            }
+        };
+        
+        const encryptedBlob = await parseMultipartResponse(encryptedResponse, contentType, totalChunksNum, progressCallback);
+        console.log(`Downloaded and combined ${totalChunksHeader || 'unknown'} chunks: ${encryptedBlob.size} bytes`);
+        
+        return { encryptedBlob, responseFileName, responseContentType };
+    } else {
+        throw new Error('Expected multipart/byteranges response but received different content type. The storage provider must return files in multipart format.');
+    }
+}
+
 // Parse multipart response and combine chunks in order (streaming)
 // progressCallback: (chunkIndex: number, totalChunks: number) => void
 async function parseMultipartResponse(
@@ -439,96 +532,54 @@ export async function downloadSharedFile(
         const { decryptFileKeyWithECIES } = await import('./osd-blockchain-sdk');
         const fileAesBundle = await decryptFileKeyWithECIES(encryptedFileKeyBase64, walletAddress);
         
-        // Use the first available storage provider
-        const provider = storageProviders[0];
-        const providerAddress = provider.provider_address;
-        
-        if (!providerAddress) {
-            throw new Error('Storage provider address not found');
-        }
-        
         // Get filename from metadata
         const fileName = metadata.original_name || 'file';
         
-        // Download complete file (server returns multipart with chunks)
-        // Remove port from provider address as Caddy handles routing
-        let downloadUrl: string;
-        if (providerAddress.includes('storage.datavault.space')) {
-            // Use Caddy proxy
-            downloadUrl = `https://storage.datavault.space/api/storage/files/download?merkle_root=${merkleRoot}`;
-        } else {
-            // Extract hostname (remove port if present)
-            let baseUrl: string;
-            if (providerAddress.startsWith('http://') || providerAddress.startsWith('https://')) {
-                const url = new URL(providerAddress);
-                url.port = ''; // Remove port
-                // Use HTTPS protocol (Caddy handles TLS)
-                baseUrl = `https://${url.hostname}`;
-            } else {
-                // Remove port from address
-                const hostname = providerAddress.split(':')[0];
-                baseUrl = `https://${hostname}`;
+        // Try downloading from each provider until one succeeds
+        let downloadSucceeded = false;
+        let lastError: Error | null = null;
+        
+        for (let providerIndex = 0; providerIndex < storageProviders.length; providerIndex++) {
+            const provider = storageProviders[providerIndex];
+            const providerAddress = provider.provider_address;
+            
+            if (!providerAddress) {
+                console.warn(`Provider ${providerIndex} has no address, skipping...`);
+                continue;
             }
             
-            downloadUrl = `${baseUrl}/api/storage/files/download?merkle_root=${merkleRoot}`;
-        }
-        
-        console.log('Downloading shared file from:', downloadUrl);
-        const encryptedResponse = await fetchWithTimeout(downloadUrl, 60000, {
-            method: 'GET'
-        }); // 60 second timeout for file download
-        
-        if (!encryptedResponse.ok) {
-            throw new Error(`Failed to download file: ${encryptedResponse.status} ${encryptedResponse.statusText}`);
-        }
-        
-        // Extract metadata from response headers
-        const responseFileName = encryptedResponse.headers.get('X-Original-Name') || fileName;
-        const responseContentType = encryptedResponse.headers.get('X-Content-Type') || metadata.content_type;
-        const totalChunksHeader = encryptedResponse.headers.get('X-Total-Chunks');
-        const contentType = encryptedResponse.headers.get('Content-Type') || '';
-        
-        // Check if response is multipart
-        if (contentType.includes('multipart/byteranges')) {
-            // Parse multipart response with progress updates
-            console.log('Parsing multipart response...');
+            console.log(`=== Attempting download from provider ${providerIndex + 1}/${storageProviders.length} ===`);
+            console.log('Provider address:', providerAddress);
             
-            // Get total chunks from main response header
-            const totalChunksNum = totalChunksHeader ? parseInt(totalChunksHeader, 10) : null;
-            console.log('Total chunks from main response header:', totalChunksNum);
-            
-            // Replace button with progress bar if button is provided
-            let $progressContainer: JQuery<HTMLElement> | null = null;
-            const progressId = 'download-progress-' + Date.now();
-            
-            if ($button && $button.length > 0) {
-                const $buttonContainer = $button.parent(); // div.mt-2
-                $buttonContainer.html(`
-                    <div class="progress" style="height: 20px; width: 100%;">
-                        <div id="${progressId}" class="progress-bar progress-bar-striped progress-bar-animated" 
-                             role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
-                            0%
-                        </div>
-                    </div>
-                `);
-                $progressContainer = $(`#${progressId}`);
-            }
-            
-            // Progress callback
-            const progressCallback = (chunkIndex: number, total: number) => {
-                const progress = ((chunkIndex + 1) / total) * 100;
-                console.log(`Progress update: chunk ${chunkIndex + 1}/${total} = ${Math.round(progress)}%`);
-                if ($progressContainer && $progressContainer.length > 0) {
-                    $progressContainer.css('width', `${progress}%`).attr('aria-valuenow', progress);
-                    $progressContainer.text(`${Math.round(progress)}%`);
+            try {
+                const result = await downloadFromProvider(providerAddress, merkleRoot, fileName, $button);
+                console.log(`Download from provider ${providerIndex} (${providerAddress}) completed successfully`);
+                
+                // Download succeeded, finish the download process
+                await finishDownload(result.encryptedBlob, fileAesBundle, result.responseFileName);
+                downloadSucceeded = true;
+                break; // Exit provider loop
+                
+            } catch (error) {
+                lastError = error instanceof Error ? error : new Error(String(error));
+                console.error(`Download failed for provider ${providerIndex} (${providerAddress}):`, lastError);
+                
+                if (providerIndex < storageProviders.length - 1) {
+                    console.log(`Retrying with next available provider...`);
+                    // Continue to next provider
+                } else {
+                    console.error('All providers exhausted. Download failed.');
+                    // Will throw error after loop
                 }
-            };
-            
-            const encryptedBlob = await parseMultipartResponse(encryptedResponse, contentType, totalChunksNum, progressCallback);
-            console.log(`Downloaded and combined ${totalChunksHeader || 'unknown'} chunks: ${encryptedBlob.size} bytes`);
-            await finishDownload(encryptedBlob, fileAesBundle, responseFileName);
-        } else {
-            throw new Error('Expected multipart/byteranges response but received different content type. The storage provider must return files in multipart format.');
+            }
+        }
+        
+        // If download failed for all providers, throw error
+        if (!downloadSucceeded) {
+            throw new Error(
+                `Failed to download from all ${storageProviders.length} available provider(s). ` +
+                `Last error: ${lastError?.message || 'Unknown error'}`
+            );
         }
         
     } catch (error) {
@@ -625,113 +676,51 @@ export async function downloadFile(fileMetadata: any, walletAddress: string, $bu
             throw new Error('No storage providers available for this file');
         }
         
-        // Use the first available storage provider
-        const provider = storageProviders[0];
-        const providerAddress = provider.provider_address;
+        // Try downloading from each provider until one succeeds
+        let downloadSucceeded = false;
+        let lastError: Error | null = null;
         
-        if (!providerAddress) {
-            throw new Error('Storage provider address not found');
-        }
-        
-        // Download complete file (server returns multipart with chunks)
-        // Remove port from provider address as Caddy handles routing
-        let downloadUrl: string;
-        if (providerAddress.includes('storage.datavault.space')) {
-            // Use Caddy proxy
-            downloadUrl = `https://storage.datavault.space/api/storage/files/download?merkle_root=${merkleRoot}`;
-        } else {
-            // Extract hostname (remove port if present)
-            let baseUrl: string;
-            if (providerAddress.startsWith('http://') || providerAddress.startsWith('https://')) {
-                const url = new URL(providerAddress);
-                url.port = ''; // Remove port
-                // Use HTTPS protocol (Caddy handles TLS)
-                baseUrl = `https://${url.hostname}`;
-            } else {
-                // Remove port from address
-                const hostname = providerAddress.split(':')[0];
-                baseUrl = `https://${hostname}`;
+        for (let providerIndex = 0; providerIndex < storageProviders.length; providerIndex++) {
+            const provider = storageProviders[providerIndex];
+            const providerAddress = provider.provider_address;
+            
+            if (!providerAddress) {
+                console.warn(`Provider ${providerIndex} has no address, skipping...`);
+                continue;
             }
             
-            downloadUrl = `${baseUrl}/api/storage/files/download?merkle_root=${merkleRoot}`;
-        }
-        
-        console.log('Downloading encrypted file from:', downloadUrl);
-        const encryptedResponse = await fetchWithTimeout(downloadUrl, 60000, {
-            method: 'GET'
-        }); // 60 second timeout for file download
-        
-        if (!encryptedResponse.ok) {
-            throw new Error(`Failed to download file: ${encryptedResponse.status} ${encryptedResponse.statusText}`);
-        }
-        
-        // Extract metadata from response headers
-        const responseFileName = encryptedResponse.headers.get('X-Original-Name') || fileName;
-        const responseContentType = encryptedResponse.headers.get('X-Content-Type') || metadata.content_type;
-        const totalChunksHeader = encryptedResponse.headers.get('X-Total-Chunks');
-        const contentType = encryptedResponse.headers.get('Content-Type') || '';
-        
-        // Log all response headers for debugging
-        console.log('=== Storage Provider Response Headers ===');
-        console.log('Content-Type:', contentType);
-        console.log('X-Total-Chunks:', totalChunksHeader);
-        console.log('X-Original-Name:', encryptedResponse.headers.get('X-Original-Name'));
-        console.log('X-Content-Type:', encryptedResponse.headers.get('X-Content-Type'));
-        
-        // Log all headers
-        const allHeaders: Record<string, string> = {};
-        encryptedResponse.headers.forEach((value, key) => {
-            allHeaders[key] = value;
-        });
-        console.log('All headers:', allHeaders);
-        
-        console.log('File metadata from headers:', {
-            fileName: responseFileName,
-            contentType: responseContentType,
-            totalChunks: totalChunksHeader
-        });
-        
-        // Check if response is multipart
-        if (contentType.includes('multipart/byteranges')) {
-            // Parse multipart response with progress updates
-            console.log('Parsing multipart response...');
+            console.log(`=== Attempting download from provider ${providerIndex + 1}/${storageProviders.length} ===`);
+            console.log('Provider address:', providerAddress);
             
-            // Get total chunks from main response header
-            const totalChunksNum = totalChunksHeader ? parseInt(totalChunksHeader, 10) : null;
-            console.log('Total chunks from main response header:', totalChunksNum);
-            
-            // Replace button with progress bar if button is provided
-            let $progressContainer: JQuery<HTMLElement> | null = null;
-            const progressId = 'download-progress-' + Date.now();
-            
-            if ($button && $button.length > 0) {
-                const $buttonContainer = $button.parent(); // div.mt-2
-                $buttonContainer.html(`
-                    <div class="progress" style="height: 20px; width: 100%;">
-                        <div id="${progressId}" class="progress-bar progress-bar-striped progress-bar-animated" 
-                             role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
-                            0%
-                        </div>
-                    </div>
-                `);
-                $progressContainer = $(`#${progressId}`);
-            }
-            
-            // Progress callback
-            const progressCallback = (chunkIndex: number, total: number) => {
-                const progress = ((chunkIndex + 1) / total) * 100;
-                console.log(`Progress update: chunk ${chunkIndex + 1}/${total} = ${Math.round(progress)}%`);
-                if ($progressContainer && $progressContainer.length > 0) {
-                    $progressContainer.css('width', `${progress}%`).attr('aria-valuenow', progress);
-                    $progressContainer.text(`${Math.round(progress)}%`);
+            try {
+                const result = await downloadFromProvider(providerAddress, merkleRoot, fileName, $button);
+                console.log(`Download from provider ${providerIndex} (${providerAddress}) completed successfully`);
+                
+                // Download succeeded, finish the download process
+                await finishDownload(result.encryptedBlob, fileAesBundle, result.responseFileName);
+                downloadSucceeded = true;
+                break; // Exit provider loop
+                
+            } catch (error) {
+                lastError = error instanceof Error ? error : new Error(String(error));
+                console.error(`Download failed for provider ${providerIndex} (${providerAddress}):`, lastError);
+                
+                if (providerIndex < storageProviders.length - 1) {
+                    console.log(`Retrying with next available provider...`);
+                    // Continue to next provider
+                } else {
+                    console.error('All providers exhausted. Download failed.');
+                    // Will throw error after loop
                 }
-            };
-            
-            const encryptedBlob = await parseMultipartResponse(encryptedResponse, contentType, totalChunksNum, progressCallback);
-            console.log(`Downloaded and combined ${totalChunksHeader || 'unknown'} chunks: ${encryptedBlob.size} bytes`);
-            await finishDownload(encryptedBlob, fileAesBundle, responseFileName);
-        } else {
-            throw new Error('Expected multipart/byteranges response but received different content type. The storage provider must return files in multipart format.');
+            }
+        }
+        
+        // If download failed for all providers, throw error
+        if (!downloadSucceeded) {
+            throw new Error(
+                `Failed to download from all ${storageProviders.length} available provider(s). ` +
+                `Last error: ${lastError?.message || 'Unknown error'}`
+            );
         }
         
     } catch (error) {
