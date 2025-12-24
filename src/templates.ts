@@ -820,6 +820,10 @@ export function getECIESKeySetupModalTemplate(): string {
                         </div>
                     </div>
                     <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" id="getTokensBtn">
+                            <span id="getTokensBtnText">Get Tokens</span>
+                            <span id="getTokensSpinner" class="spinner-border spinner-border-sm ms-2 d-none" role="status"></span>
+                        </button>
                         <button type="button" class="btn btn-primary" id="generateECIESKeyBtn">
                             <span id="generateECIESKeyBtnText">Generate ECIES Key</span>
                             <span id="generateECIESKeySpinner" class="spinner-border spinner-border-sm ms-2 d-none" role="status"></span>
