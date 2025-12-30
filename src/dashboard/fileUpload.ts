@@ -23,7 +23,8 @@ async function uploadChunkToStorageProvider(
     owner: string,
     expirationTime: number,
     metadata: { name: string; content_type: string },
-    transactionHash: string
+    transactionHash: string,
+    otherProviders: Array<{ provider_id?: string; provider_address?: string }> = []
 ): Promise<void> {
     console.log(`=== Uploading chunk ${chunkIndex + 1}/${totalChunks} ===`);
     console.log('Provider address:', providerAddress);
@@ -32,17 +33,19 @@ async function uploadChunkToStorageProvider(
     console.log('Combined merkle root:', combinedMerkleRoot);
     console.log('Owner:', owner);
     console.log('Transaction hash:', transactionHash);
+    console.log('Other providers:', otherProviders);
     
     const formData = new FormData();
     formData.append('file', encryptedChunk, `chunk_${chunkIndex}.bin`);
-    formData.append('merkle_root', chunkMerkleRoot); // Send individual chunk's merkle root
-    formData.append('combined_merkle_root', combinedMerkleRoot); // Also send combined merkle root for file identification
+    formData.append('combined_merkle_root', combinedMerkleRoot); // Combined merkle root for file identification
     formData.append('owner', owner);
     formData.append('expiration_time', expirationTime.toString());
     formData.append('chunk_index', chunkIndex.toString());
     formData.append('total_chunks', totalChunks.toString());
-    formData.append('metadata', JSON.stringify(metadata));
     formData.append('transaction_hash', transactionHash);
+    
+    // Always include list of other providers (excluding the current one), even if empty
+    formData.append('other_providers', JSON.stringify(otherProviders));
     
     // Construct upload URL from provider address
     // Provider address format: "24.150.228.114:8088" or "example.com:8088" or "https://example.com:8088"
@@ -297,6 +300,19 @@ export async function uploadFile(file: File): Promise<void> {
                         `Uploading to provider ${providerAttempt + 1}/${providerOrder.length}...`
                     );
                     
+                    // Build list of other providers (excluding the current one)
+                    const otherProviders = postFileResult.providers
+                        .filter((p, idx) => idx !== providerIndex)
+                        .map(p => ({
+                            provider_id: p.providerId,
+                            provider_address: p.providerAddress
+                        }));
+                    
+                    console.log('=== Other Providers (excluding current) ===');
+                    console.log('Other providers:', JSON.stringify(otherProviders, null, 2));
+                    console.log('Total providers:', postFileResult.providers.length);
+                    console.log('Current provider index:', providerIndex);
+                    
                     // Try uploading all chunks to this provider
                     for (let i = 0; i < encryptedChunks.length; i++) {
                         // Update progress (50-90% for chunk uploads)
@@ -317,7 +333,8 @@ export async function uploadFile(file: File): Promise<void> {
                             userAddress,
                             expirationTime,
                             metadata,
-                            postFileResult.transactionHash // Pass transaction hash
+                            postFileResult.transactionHash, // Pass transaction hash
+                            otherProviders // Pass list of other providers
                         );
                     }
                     
