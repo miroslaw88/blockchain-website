@@ -554,7 +554,7 @@ export async function downloadSharedFile(
             try {
                 const result = await downloadFromProvider(providerAddress, merkleRoot, fileName, $button);
                 console.log(`Download from provider ${providerIndex} (${providerAddress}) completed successfully`);
-                
+            
                 // Download succeeded, finish the download process
                 await finishDownload(result.encryptedBlob, fileAesBundle, result.responseFileName);
                 downloadSucceeded = true;
@@ -682,13 +682,13 @@ export async function downloadFile(fileMetadata: any, walletAddress: string, $bu
         
         for (let providerIndex = 0; providerIndex < storageProviders.length; providerIndex++) {
             const provider = storageProviders[providerIndex];
-            const providerAddress = provider.provider_address;
-            
-            if (!providerAddress) {
+        const providerAddress = provider.provider_address;
+        
+        if (!providerAddress) {
                 console.warn(`Provider ${providerIndex} has no address, skipping...`);
                 continue;
-            }
-            
+        }
+        
             console.log(`=== Attempting download from provider ${providerIndex + 1}/${storageProviders.length} ===`);
             console.log('Provider address:', providerAddress);
             
@@ -713,8 +713,8 @@ export async function downloadFile(fileMetadata: any, walletAddress: string, $bu
                     // Will throw error after loop
                 }
             }
-        }
-        
+            }
+            
         // If download failed for all providers, throw error
         if (!downloadSucceeded) {
             throw new Error(
