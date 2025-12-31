@@ -495,13 +495,19 @@ async function fetchSharedFiles(accountAddress: string, requesterAddress: string
                     return;
                 }
                 
-                const $buttonContainer = $button.parent();
-                const originalHTML = $buttonContainer.html();
+                // Show download progress toast immediately when button is clicked (before any API calls)
+                const { showDownloadProgressToast, finalizeDownloadProgress } = await import('../downloadFile');
+                const fileName = fileMetadata.original_name || fileMetadata.name || 'file';
+                showDownloadProgressToast(merkleRoot, fileName);
                 
                 try {
                     await downloadSharedFile(merkleRoot, storageProviders, fileMetadata, encryptedFileKey, requesterAddress, $button);
-                } finally {
-                    $buttonContainer.html(originalHTML);
+                    // Finalize toast on success
+                    finalizeDownloadProgress(merkleRoot, true);
+                } catch (error) {
+                    // Finalize toast on error
+                    finalizeDownloadProgress(merkleRoot, false);
+                    throw error;
                 }
             });
         }

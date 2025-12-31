@@ -3,6 +3,141 @@
 import { getKeplr, CHAIN_ID } from './utils';
 import { decryptFile, decryptFileKeyWithECIES, IAesBundle } from './osd-blockchain-sdk';
 
+// Track download progress toasts by merkle_root
+const downloadProgressToasts: Map<string, { toastId: string; $progressBar: JQuery<HTMLElement>; $status: JQuery<HTMLElement> }> = new Map();
+
+/**
+ * Show download progress toast (similar to upload progress)
+ * @param merkleRoot - Merkle root of the file
+ * @param fileName - Name of the file being downloaded
+ */
+export function showDownloadProgressToast(merkleRoot: string, fileName: string): void {
+    // Check if toast already exists for this merkle root
+    if (downloadProgressToasts.has(merkleRoot)) {
+        return; // Toast already exists
+    }
+    
+    const $container = $('#toastContainer');
+    if ($container.length === 0) {
+        // Create container if it doesn't exist
+        $('body').append('<div class="toast-container position-fixed bottom-0 end-0 p-3" id="toastContainer" style="z-index: 9999;"></div>');
+    }
+    
+    const toastId = `download-toast-${merkleRoot}`;
+    const progressId = `download-progress-${merkleRoot}`;
+    const statusId = `download-status-${merkleRoot}`;
+    
+    const $toast = $(`
+        <div class="toast bg-info text-white" role="alert" aria-live="polite" aria-atomic="true" id="${toastId}" data-bs-autohide="false">
+            <div class="toast-header bg-info text-white border-0">
+                <strong class="me-auto">📥 Downloading</strong>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+            <div class="toast-body">
+                <div class="mb-2">
+                    <strong>${fileName}</strong>
+                </div>
+                <div class="progress mb-2" style="height: 20px;">
+                    <div id="${progressId}" class="progress-bar progress-bar-striped progress-bar-animated bg-success text-white" 
+                         role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                        0%
+                    </div>
+                </div>
+                <small class="d-block" id="${statusId}">Initializing download...</small>
+            </div>
+        </div>
+    `);
+    
+    $('#toastContainer').append($toast);
+    
+    // Initialize and show toast using Bootstrap (don't auto-hide)
+    const toastElement = $toast[0];
+    const toast = new (window as any).bootstrap.Toast(toastElement, {
+        autohide: false // Don't auto-hide - we'll hide it manually when download completes
+    });
+    toast.show();
+    
+    const $progressBar = $(`#${progressId}`);
+    const $status = $(`#${statusId}`);
+    
+    // Store in map
+    downloadProgressToasts.set(merkleRoot, { toastId, $progressBar, $status });
+}
+
+/**
+ * Update download progress in toast
+ * @param merkleRoot - Merkle root of the file
+ * @param progress - Progress percentage (0-100)
+ * @param status - Status message
+ */
+export function updateDownloadProgress(merkleRoot: string, progress: number, status: string): void {
+    const toastData = downloadProgressToasts.get(merkleRoot);
+    if (!toastData) return;
+    
+    if (toastData.$progressBar && toastData.$progressBar.length > 0) {
+        toastData.$progressBar.css('width', `${progress}%`).attr('aria-valuenow', progress);
+        toastData.$progressBar.text(`${Math.round(progress)}%`);
+    }
+    
+    if (toastData.$status && toastData.$status.length > 0) {
+        toastData.$status.text(status);
+    }
+}
+
+/**
+ * Update download status message only
+ * @param merkleRoot - Merkle root of the file
+ * @param message - Status message to display
+ */
+export function updateDownloadStatus(merkleRoot: string, message: string): void {
+    const toastData = downloadProgressToasts.get(merkleRoot);
+    if (toastData && toastData.$status && toastData.$status.length > 0) {
+        toastData.$status.text(message);
+    }
+}
+
+/**
+ * Remove download progress toast
+ * @param merkleRoot - Merkle root of the file
+ * @param success - Whether the download was successful
+ */
+export function finalizeDownloadProgress(merkleRoot: string, success: boolean): void {
+    const toastData = downloadProgressToasts.get(merkleRoot);
+    if (!toastData) return;
+    
+    const $toast = $(`#${toastData.toastId}`);
+    
+    if ($toast.length > 0) {
+        const toastElement = $toast[0];
+        const toastInstance = (window as any).bootstrap.Toast.getInstance(toastElement);
+        
+        if (toastInstance) {
+            // Hide the toast
+            toastInstance.hide();
+            
+            // Remove toast element after it's hidden
+            $toast.on('hidden.bs.toast', () => {
+                $toast.remove();
+            });
+        } else {
+            // If toast instance doesn't exist, just remove the element
+            $toast.remove();
+        }
+    }
+    
+    // Remove from map
+    downloadProgressToasts.delete(merkleRoot);
+}
+
+/**
+ * Get download progress toast data (internal use)
+ * @param merkleRoot - Merkle root of the file
+ * @returns Toast data or null if not found
+ */
+function getDownloadProgressToast(merkleRoot: string): { toastId: string; $progressBar: JQuery<HTMLElement>; $status: JQuery<HTMLElement> } | null {
+    return downloadProgressToasts.get(merkleRoot) || null;
+}
+
 // Show toast notification
 function showToast(message: string, type: 'error' | 'success' | 'info' = 'error'): void {
     const $container = $('#toastContainer');
@@ -147,7 +282,6 @@ async function downloadFromProvider(
     $button?: JQuery<HTMLElement>
 ): Promise<{ encryptedBlob: Blob; responseFileName: string; responseContentType: string }> {
     const downloadUrl = constructDownloadUrl(providerAddress, merkleRoot);
-    console.log('Downloading encrypted file from:', downloadUrl);
     
     const encryptedResponse = await fetchWithTimeout(downloadUrl, 60000, {
         method: 'GET'
@@ -166,41 +300,25 @@ async function downloadFromProvider(
     // Check if response is multipart
     if (contentType.includes('multipart/byteranges')) {
         // Parse multipart response with progress updates
-        console.log('Parsing multipart response...');
         
         // Get total chunks from main response header
         const totalChunksNum = totalChunksHeader ? parseInt(totalChunksHeader, 10) : null;
-        console.log('Total chunks from main response header:', totalChunksNum);
         
-        // Replace button with progress bar if button is provided
-        let $progressContainer: JQuery<HTMLElement> | null = null;
-        const progressId = 'download-progress-' + Date.now();
+        // Get toast that was created when download button was clicked
+        const toastData = getDownloadProgressToast(merkleRoot);
         
-        if ($button && $button.length > 0) {
-            const $buttonContainer = $button.parent(); // div.mt-2
-            $buttonContainer.html(`
-                <div class="progress" style="height: 20px; width: 100%;">
-                    <div id="${progressId}" class="progress-bar progress-bar-striped progress-bar-animated" 
-                         role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
-                        0%
-                    </div>
-                </div>
-            `);
-            $progressContainer = $(`#${progressId}`);
+        // Update status to show downloading
+        if (toastData) {
+            updateDownloadStatus(merkleRoot, 'Downloading chunks...');
         }
         
         // Progress callback
         const progressCallback = (chunkIndex: number, total: number) => {
             const progress = ((chunkIndex + 1) / total) * 100;
-            console.log(`Progress update: chunk ${chunkIndex + 1}/${total} = ${Math.round(progress)}%`);
-            if ($progressContainer && $progressContainer.length > 0) {
-                $progressContainer.css('width', `${progress}%`).attr('aria-valuenow', progress);
-                $progressContainer.text(`${Math.round(progress)}%`);
-            }
+            updateDownloadProgress(merkleRoot, progress, `Downloading chunk ${chunkIndex + 1} of ${total}...`);
         };
         
         const encryptedBlob = await parseMultipartResponse(encryptedResponse, contentType, totalChunksNum, progressCallback);
-        console.log(`Downloaded and combined ${totalChunksHeader || 'unknown'} chunks: ${encryptedBlob.size} bytes`);
         
         return { encryptedBlob, responseFileName, responseContentType };
     } else {
@@ -226,8 +344,6 @@ async function parseMultipartResponse(
     const boundaryBytes = new TextEncoder().encode(`--${boundary}`);
     const endBoundaryBytes = new TextEncoder().encode(`--${boundary}--`);
     
-    console.log('Multipart boundary:', boundary);
-    
     // Stream the response to parse chunks as they arrive
     if (!response.body) {
         throw new Error('Response body is not available for streaming');
@@ -248,8 +364,6 @@ async function parseMultipartResponse(
     let headerBuffer = '';
     let firstBoundarySkipped = false;
     
-    console.log('parseMultipartResponse: totalChunks from header =', totalChunks);
-    
     try {
         while (true) {
             const { done, value } = await reader.read();
@@ -259,16 +373,9 @@ async function parseMultipartResponse(
                 if (currentChunkData.length > 0 && currentChunkIndex !== null) {
                     const chunkData = concatenateUint8Arrays(currentChunkData);
                     chunks.push({ index: currentChunkIndex, data: chunkData });
-                    console.log(`✓ Parsed chunk ${currentChunkIndex}: ${chunkData.length} bytes (final)`);
                     
                     if (progressCallback && totalChunks !== null) {
-                        console.log(`Calling progress callback: chunk ${currentChunkIndex + 1}/${totalChunks} (final)`);
                         progressCallback(currentChunkIndex, totalChunks);
-                    } else {
-                        console.warn('Progress callback not called (final):', {
-                            hasCallback: !!progressCallback,
-                            totalChunks: totalChunks
-                        });
                     }
                 }
                 break;
@@ -315,50 +422,30 @@ async function parseMultipartResponse(
                     headerBuffer += decoder.decode(buffer.slice(0, headerEndPos));
                     currentPartHeaders = parseHeaders(headerBuffer);
                     
-                    // Log chunk part headers
-                    console.log('=== Chunk Part Headers ===');
-                    console.log('Headers:', currentPartHeaders);
-                    
                     // Extract chunk index and total chunks
                     const chunkIndexHeader = currentPartHeaders['X-Chunk-Index'] || currentPartHeaders['x-chunk-index'];
                     const contentRangeHeader = currentPartHeaders['Content-Range'] || currentPartHeaders['content-range'];
                     
-                    console.log('X-Chunk-Index:', chunkIndexHeader);
-                    console.log('Content-Range:', contentRangeHeader);
-                    
                     // Get chunk index from X-Chunk-Index or Content-Range
                     if (chunkIndexHeader) {
                         currentChunkIndex = parseInt(chunkIndexHeader, 10);
-                        console.log('Chunk index from X-Chunk-Index:', currentChunkIndex);
                     } else if (contentRangeHeader) {
                         const rangeMatch = contentRangeHeader.match(/chunk\s+(\d+)\/(\d+)/i);
                         if (rangeMatch) {
                             currentChunkIndex = parseInt(rangeMatch[1], 10);
-                            console.log('Chunk index from Content-Range:', currentChunkIndex);
                         }
                     }
                     
                     // Always try to extract total chunks from Content-Range if not already set
                     if (totalChunks === null && contentRangeHeader) {
-                        console.log('Attempting to extract total chunks from Content-Range:', contentRangeHeader);
                         const rangeMatch = contentRangeHeader.match(/chunk\s+\d+\/(\d+)/i);
-                        console.log('Content-Range regex match result:', rangeMatch);
                         if (rangeMatch) {
                             totalChunks = parseInt(rangeMatch[1], 10);
-                            console.log('✓ Total chunks extracted from Content-Range:', totalChunks);
-                        } else {
-                            console.warn('Content-Range regex did not match. Pattern: /chunk\\s+\\d+\\/(\\d+)/i');
                         }
                     }
                     
                     if (currentChunkIndex === null) {
                         throw new Error('Could not determine chunk index from headers');
-                    }
-                    
-                    if (totalChunks === null) {
-                        console.warn('Total chunks not available from main header or Content-Range');
-                    } else {
-                        console.log('Total chunks available:', totalChunks);
                     }
                     
                     // Get content length
@@ -386,17 +473,10 @@ async function parseMultipartResponse(
                         if (currentChunkIndex !== null && currentChunkData.length > 0) {
                             const chunkData = concatenateUint8Arrays(currentChunkData);
                             chunks.push({ index: currentChunkIndex, data: chunkData });
-                            console.log(`✓ Parsed chunk ${currentChunkIndex}: ${chunkData.length} bytes`);
                             
                             // Call progress callback
                             if (progressCallback && totalChunks !== null) {
-                                console.log(`Calling progress callback: chunk ${currentChunkIndex + 1}/${totalChunks}`);
                                 progressCallback(currentChunkIndex, totalChunks);
-                            } else {
-                                console.warn('Progress callback not called:', {
-                                    hasCallback: !!progressCallback,
-                                    totalChunks: totalChunks
-                                });
                             }
                         }
                         
@@ -417,17 +497,10 @@ async function parseMultipartResponse(
                         if (currentChunkIndex !== null && currentChunkData.length > 0) {
                             const chunkData = concatenateUint8Arrays(currentChunkData);
                             chunks.push({ index: currentChunkIndex, data: chunkData });
-                            console.log(`✓ Parsed chunk ${currentChunkIndex}: ${chunkData.length} bytes`);
                             
                             // Call progress callback
                             if (progressCallback && totalChunks !== null) {
-                                console.log(`Calling progress callback: chunk ${currentChunkIndex + 1}/${totalChunks}`);
                                 progressCallback(currentChunkIndex, totalChunks);
-                            } else {
-                                console.warn('Progress callback not called:', {
-                                    hasCallback: !!progressCallback,
-                                    totalChunks: totalChunks
-                                });
                             }
                         }
                         
@@ -473,36 +546,22 @@ async function parseMultipartResponse(
         combinedOffset += chunk.data.length;
     }
     
-    console.log(`Combined ${chunks.length} chunks into ${combined.length} bytes`);
     return new Blob([combined]);
 }
 
 // Helper function to complete the download (decrypt and save)
 async function finishDownload(encryptedBlob: Blob, fileAesBundle: IAesBundle, fileName: string): Promise<void> {
     // Step 3: Decrypt file using AES bundle
-    console.log('=== Starting File Decryption ===');
-    console.log('Encrypted blob size:', encryptedBlob.size, 'bytes');
-    console.log('AES bundle IV length:', fileAesBundle.iv.length);
-    console.log('AES bundle key algorithm:', fileAesBundle.key.algorithm.name);
-    const aesAlgorithm = fileAesBundle.key.algorithm as AesKeyAlgorithm;
-    console.log('AES bundle key length:', aesAlgorithm.length);
-    
-    // Decrypt the file using AES bundle
-    console.log('Calling decryptFile...');
     const { decryptFile } = await import('./osd-blockchain-sdk');
     const decryptedBlob = await decryptFile(encryptedBlob, fileAesBundle);
-    console.log('File decrypted successfully, size:', decryptedBlob.size, 'bytes');
     
     // Step 4: Save file
-    console.log('Saving file:', fileName);
     const url = URL.createObjectURL(decryptedBlob);
     const $a = $('<a>').attr({ href: url, download: fileName });
     $('body').append($a);
     $a[0].click();
     $a.remove();
     URL.revokeObjectURL(url);
-    
-    console.log('File downloaded successfully');
 }
 
 // Download shared file directly from storage provider
@@ -516,6 +575,7 @@ export async function downloadSharedFile(
     $button?: JQuery<HTMLElement>
 ): Promise<void> {
     try {
+        // Toast should already be created by the button click handler
         if (!merkleRoot) {
             throw new Error('Merkle root not found');
         }
@@ -527,6 +587,9 @@ export async function downloadSharedFile(
         if (storageProviders.length === 0) {
             throw new Error('No storage providers available for this file');
         }
+        
+        // Update status to show decrypting key
+        updateDownloadStatus(merkleRoot, 'Decrypting file key...');
         
         // Decrypt file's AES bundle with recipient's private key
         const { decryptFileKeyWithECIES } = await import('./osd-blockchain-sdk');
@@ -548,15 +611,25 @@ export async function downloadSharedFile(
                 continue;
             }
             
-            console.log(`=== Attempting download from provider ${providerIndex + 1}/${storageProviders.length} ===`);
-            console.log('Provider address:', providerAddress);
+            // Show provider switch message if not the first provider
+            if (providerIndex > 0) {
+                updateDownloadStatus(merkleRoot, `Switching to provider ${providerIndex + 1}/${storageProviders.length}...`);
+            } else {
+                updateDownloadStatus(merkleRoot, `Downloading from provider ${providerIndex + 1}/${storageProviders.length}...`);
+            }
             
             try {
                 const result = await downloadFromProvider(providerAddress, merkleRoot, fileName, $button);
-                console.log(`Download from provider ${providerIndex} (${providerAddress}) completed successfully`);
+            
+                // Update status to show decrypting
+                updateDownloadStatus(merkleRoot, 'Decrypting file...');
             
                 // Download succeeded, finish the download process
                 await finishDownload(result.encryptedBlob, fileAesBundle, result.responseFileName);
+                
+                // Update status to show success
+                updateDownloadStatus(merkleRoot, 'Download complete!');
+                
                 downloadSucceeded = true;
                 break; // Exit provider loop
                 
@@ -565,9 +638,9 @@ export async function downloadSharedFile(
                 console.error(`Download failed for provider ${providerIndex} (${providerAddress}):`, lastError);
                 
                 if (providerIndex < storageProviders.length - 1) {
-                    console.log(`Retrying with next available provider...`);
-                    // Continue to next provider
+                    // Continue to next provider - status will be updated at start of next iteration
                 } else {
+                    updateDownloadStatus(merkleRoot, 'Download failed. All providers exhausted.');
                     console.error('All providers exhausted. Download failed.');
                     // Will throw error after loop
                 }
@@ -586,6 +659,7 @@ export async function downloadSharedFile(
         const errorMessage = error instanceof Error ? error.message : 'Download failed';
         console.error('Download error:', error);
         console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
+        updateDownloadStatus(merkleRoot, `Error: ${errorMessage}`);
         showToast(`Download failed: ${errorMessage}`, 'error');
         throw error;
     }
@@ -599,6 +673,7 @@ export async function downloadFile(fileMetadata: any, walletAddress: string, $bu
             throw new Error('Merkle root not found in file metadata');
         }
         
+        // Toast should already be created by the button click handler
         // Step 1: Query file information from indexer to get encrypted_file_key and storage providers
         const { Dashboard } = await import('./dashboard/index');
         const indexer = await Dashboard.waitForIndexer();
@@ -609,8 +684,6 @@ export async function downloadFile(fileMetadata: any, walletAddress: string, $bu
             : `${protocol}://${indexer.indexer_address}`;
         const downloadInfoUrl = `${baseUrl}/api/indexer/v1/files/query`;
         
-        console.log('Querying file info from indexer:', downloadInfoUrl);
-        console.log('Request payload:', { merkle_root: merkleRoot, owner: walletAddress, requester: walletAddress });
         
         const infoResponse = await fetchWithTimeout(downloadInfoUrl, 15000, {
             method: 'POST',
@@ -625,7 +698,6 @@ export async function downloadFile(fileMetadata: any, walletAddress: string, $bu
         }
         
         const downloadInfo = await infoResponse.json();
-        console.log('File download info from indexer:', downloadInfo);
         
         // Get encrypted_file_key from indexer response
         const fileData = downloadInfo.file || {};
@@ -634,29 +706,11 @@ export async function downloadFile(fileMetadata: any, walletAddress: string, $bu
             throw new Error('Encrypted file key not found in indexer response. File may not be properly encrypted.');
         }
         
-        // Debug: Log encrypted file key details
-        console.log('=== Encrypted File Key Debug ===');
-        console.log('Encrypted file key type:', typeof encryptedFileKey);
-        console.log('Encrypted file key length:', encryptedFileKey.length);
-        console.log('Contains pipe delimiter:', encryptedFileKey.includes('|'));
-        console.log('First 50 chars:', encryptedFileKey.substring(0, 50));
-        console.log('Last 50 chars:', encryptedFileKey.substring(encryptedFileKey.length - 50));
-        const pipeIndex = encryptedFileKey.indexOf('|');
-        if (pipeIndex > 0) {
-            console.log('Encrypted IV length (hex):', pipeIndex);
-            console.log('Encrypted Key length (hex):', encryptedFileKey.length - pipeIndex - 1);
-        }
-        
         // Decrypt file's AES bundle with owner's private key
         const { decryptFileKeyWithECIES } = await import('./osd-blockchain-sdk');
-        console.log('Decrypting file key with ECIES...');
         let fileAesBundle;
         try {
             fileAesBundle = await decryptFileKeyWithECIES(encryptedFileKey, walletAddress);
-            console.log('File AES bundle decrypted successfully');
-            console.log('Decrypted IV length:', fileAesBundle.iv.length);
-            console.log('Decrypted key algorithm:', fileAesBundle.key.algorithm.name);
-            console.log('Decrypted key extractable:', fileAesBundle.key.extractable);
         } catch (error) {
             console.error('Error decrypting file key:', error);
             throw error;
@@ -676,6 +730,9 @@ export async function downloadFile(fileMetadata: any, walletAddress: string, $bu
             throw new Error('No storage providers available for this file');
         }
         
+        // Update status to show starting download
+        updateDownloadStatus(merkleRoot, 'Connecting to storage provider...');
+        
         // Try downloading from each provider until one succeeds
         let downloadSucceeded = false;
         let lastError: Error | null = null;
@@ -689,15 +746,25 @@ export async function downloadFile(fileMetadata: any, walletAddress: string, $bu
                 continue;
         }
         
-            console.log(`=== Attempting download from provider ${providerIndex + 1}/${storageProviders.length} ===`);
-            console.log('Provider address:', providerAddress);
-            
+            // Show provider switch message if not the first provider
+            if (providerIndex > 0) {
+                updateDownloadStatus(merkleRoot, `Switching to provider ${providerIndex + 1}/${storageProviders.length}...`);
+            } else {
+                updateDownloadStatus(merkleRoot, `Downloading from provider ${providerIndex + 1}/${storageProviders.length}...`);
+            }
+        
             try {
                 const result = await downloadFromProvider(providerAddress, merkleRoot, fileName, $button);
-                console.log(`Download from provider ${providerIndex} (${providerAddress}) completed successfully`);
+                
+                // Update status to show decrypting
+                updateDownloadStatus(merkleRoot, 'Decrypting file...');
                 
                 // Download succeeded, finish the download process
                 await finishDownload(result.encryptedBlob, fileAesBundle, result.responseFileName);
+                
+                // Update status to show success
+                updateDownloadStatus(merkleRoot, 'Download complete!');
+                
                 downloadSucceeded = true;
                 break; // Exit provider loop
                 
@@ -706,9 +773,9 @@ export async function downloadFile(fileMetadata: any, walletAddress: string, $bu
                 console.error(`Download failed for provider ${providerIndex} (${providerAddress}):`, lastError);
                 
                 if (providerIndex < storageProviders.length - 1) {
-                    console.log(`Retrying with next available provider...`);
-                    // Continue to next provider
+                    // Continue to next provider - status will be updated at start of next iteration
                 } else {
+                    updateDownloadStatus(merkleRoot, 'Download failed. All providers exhausted.');
                     console.error('All providers exhausted. Download failed.');
                     // Will throw error after loop
                 }

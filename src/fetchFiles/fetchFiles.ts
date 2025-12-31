@@ -301,6 +301,10 @@ function attachEventHandlers(walletAddress: string, currentPath: string): void {
             return;
         }
         
+        // Show download progress toast immediately when button is clicked (before any API calls)
+        const { showDownloadProgressToast, finalizeDownloadProgress } = await import('../downloadFile');
+        showDownloadProgressToast(merkleRoot, fileName);
+        
         // Create file metadata object with encrypted file key from indexer
         const fileMetadata = {
             merkleRoot: merkleRoot,
@@ -309,15 +313,14 @@ function attachEventHandlers(walletAddress: string, currentPath: string): void {
             encrypted_file_key: encryptedFileKey
         };
         
-        // Replace button with progress bar
-        const $buttonContainer = $button.parent(); // div.mt-2
-        const originalHTML = $buttonContainer.html();
-        
         try {
             await downloadFile(fileMetadata, walletAddress, $button);
-        } finally {
-            // Restore button
-            $buttonContainer.html(originalHTML);
+            // Finalize toast on success
+            finalizeDownloadProgress(merkleRoot, true);
+        } catch (error) {
+            // Finalize toast on error
+            finalizeDownloadProgress(merkleRoot, false);
+            throw error;
         }
     });
     
