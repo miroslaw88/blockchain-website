@@ -323,11 +323,31 @@ async function fetchSharedFiles(accountAddress: string, requesterAddress: string
         // Update breadcrumbs
         $breadcrumbs.html(breadcrumbs);
         
+        // Sort entries by upload date (newest first) - files first, then directories
+        // Files are sorted by uploaded_at descending, directories maintain their order
+        const sortedEntries = [...entries].sort((a: any, b: any) => {
+            // Directories come after files
+            if (a.type === 'directory' && b.type === 'file') {
+                return 1;
+            }
+            if (a.type === 'file' && b.type === 'directory') {
+                return -1;
+            }
+            // If both are files, sort by uploaded_at descending (newest first)
+            if (a.type === 'file' && b.type === 'file') {
+                const aTimestamp = typeof a.uploaded_at === 'number' ? a.uploaded_at : parseInt(String(a.uploaded_at || '0'), 10);
+                const bTimestamp = typeof b.uploaded_at === 'number' ? b.uploaded_at : parseInt(String(b.uploaded_at || '0'), 10);
+                return bTimestamp - aTimestamp; // Descending order (newest first)
+            }
+            // If both are directories, maintain original order
+            return 0;
+        });
+        
         // Display entries
-        if (entries.length === 0) {
+        if (sortedEntries.length === 0) {
             $content.html(getEmptyStateTemplate());
         } else {
-            const entriesGrid = entries.map((entry: any) => {
+            const entriesGrid = sortedEntries.map((entry: any) => {
                 // Handle directory entries
                 if (entry.type === 'directory') {
                     const folderName = entry.name || 'Unknown Folder';

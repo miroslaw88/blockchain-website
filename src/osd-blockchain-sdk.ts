@@ -68,8 +68,11 @@ export interface FileMetadata {
 // Configuration
 // ============================================================================
 
-export const CHAIN_ID = 'osdblockchain';
-export const ENCRYPTION_CHUNK_SIZE = 32 * 1024 * 1024; // 32MB chunks (like OSD system)
+// Import constants from utils (central location)
+import { CHAIN_ID, ENCRYPTION_CHUNK_SIZE } from './utils';
+
+export { CHAIN_ID, ENCRYPTION_CHUNK_SIZE }; // Re-export for backward compatibility
+
 export const PBKDF2_ITERATIONS = 10000;
 export const AES_TAG_LENGTH = 128; // 128-bit authentication tag
 

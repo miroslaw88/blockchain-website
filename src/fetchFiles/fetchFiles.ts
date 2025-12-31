@@ -109,6 +109,26 @@ export async function fetchFiles(walletAddress: string, path: string = ''): Prom
             chunk_count?: number;
         }> = data.entries || [];
         
+        // Sort entries by upload date (newest first) - files first, then directories
+        // Files are sorted by uploaded_at descending, directories maintain their order
+        const sortedEntries = [...entries].sort((a, b) => {
+            // Directories come after files
+            if (a.type === 'directory' && b.type === 'file') {
+                return 1;
+            }
+            if (a.type === 'file' && b.type === 'directory') {
+                return -1;
+            }
+            // If both are files, sort by uploaded_at descending (newest first)
+            if (a.type === 'file' && b.type === 'file') {
+                const aDate = parseInt(a.uploaded_at || '0', 10);
+                const bDate = parseInt(b.uploaded_at || '0', 10);
+                return bDate - aDate; // Descending order (newest first)
+            }
+            // If both are directories, maintain original order
+            return 0;
+        });
+        
         // Store current path in sessionStorage for uploads (even if no entries)
         // Normalize the path: use "/" for root, ensure no double slashes
         let currentPath = data.path || path || '';
@@ -124,8 +144,8 @@ export async function fetchFiles(walletAddress: string, path: string = ''): Prom
         const breadcrumbs = buildBreadcrumbs(currentPath);
         
         // Count files and directories (needed for both empty and non-empty states)
-        const fileCount = entries.filter(e => e.type === 'file').length;
-        const directoryCount = entries.filter(e => e.type === 'directory').length;
+        const fileCount = sortedEntries.filter(e => e.type === 'file').length;
+        const directoryCount = sortedEntries.filter(e => e.type === 'directory').length;
         
         // Check if the files view template already exists
         const $existingCard = $contentArea.find('.card');
@@ -166,7 +186,7 @@ export async function fetchFiles(walletAddress: string, path: string = ''): Prom
         const $contentAreaInner = $('#filesViewContent');
         
         // Display entries as thumbnails
-        if (entries.length === 0) {
+        if (sortedEntries.length === 0) {
             $contentAreaInner.html(getEmptyStateTemplate());
             
             // Re-attach event handlers (they may have been removed)
@@ -175,7 +195,7 @@ export async function fetchFiles(walletAddress: string, path: string = ''): Prom
         }
         
         // Generate thumbnail grid
-        const entriesGrid = entries.map((entry: any) => {
+        const entriesGrid = sortedEntries.map((entry: any) => {
             if (entry.type === 'file') {
                 // Handle file entry
                 // Parse metadata

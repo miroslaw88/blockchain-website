@@ -25,6 +25,9 @@ export interface KeplrWindow extends Window {
 // OSD Blockchain chain configuration
 export const CHAIN_ID = 'osdblockchain';
 
+// File encryption chunk size configuration
+export const ENCRYPTION_CHUNK_SIZE = 10 * 1024 * 1024; // 10MB chunks (like OSD system)
+
 // Get Keplr instance
 export function getKeplr(): KeplrWindow['keplr'] {
     const window = globalThis as unknown as KeplrWindow;
