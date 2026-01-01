@@ -779,6 +779,67 @@ export async function calculateMerkleRoot(data: ArrayBuffer): Promise<string> {
 }
 
 /**
+ * Build Merkle tree from chunk hashes and return the root hash
+ * This is memory-efficient as it only works with hash values (32 bytes each) instead of full chunks
+ * 
+ * @param chunkHashes - Array of hex-encoded SHA-256 hashes (one per chunk)
+ * @returns Merkle tree root hash as hex string
+ */
+export async function buildMerkleTree(chunkHashes: string[]): Promise<string> {
+    if (chunkHashes.length === 0) {
+        throw new Error('Cannot build Merkle tree from empty hash array');
+    }
+    
+    if (chunkHashes.length === 1) {
+        // Single chunk - return its hash as the root
+        return chunkHashes[0];
+    }
+    
+    // Convert hex hashes to Uint8Array (32 bytes each)
+    const hashBytes = chunkHashes.map(hexHash => {
+        const bytes = new Uint8Array(32);
+        for (let i = 0; i < 32; i++) {
+            bytes[i] = parseInt(hexHash.substr(i * 2, 2), 16);
+        }
+        return bytes;
+    });
+    
+    // Build Merkle tree by hashing pairs until one root remains
+    let currentLevel: Uint8Array[] = hashBytes;
+    
+    while (currentLevel.length > 1) {
+        const nextLevel: Uint8Array[] = [];
+        
+        // Process pairs
+        for (let i = 0; i < currentLevel.length; i += 2) {
+            if (i + 1 < currentLevel.length) {
+                // Hash pair of hashes
+                const combined = new Uint8Array(64);
+                combined.set(currentLevel[i], 0);
+                combined.set(currentLevel[i + 1], 32);
+                
+                const hashBuffer = await crypto.subtle.digest('SHA-256', combined);
+                nextLevel.push(new Uint8Array(hashBuffer));
+            } else {
+                // Odd number of hashes - hash with itself (duplicate the last hash)
+                const combined = new Uint8Array(64);
+                combined.set(currentLevel[i], 0);
+                combined.set(currentLevel[i], 32);
+                
+                const hashBuffer = await crypto.subtle.digest('SHA-256', combined);
+                nextLevel.push(new Uint8Array(hashBuffer));
+            }
+        }
+        
+        currentLevel = nextLevel;
+    }
+    
+    // Convert final root hash to hex string
+    const finalHash = Array.from(currentLevel[0]);
+    return finalHash.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
  * Hash filename (like OSD system protocol)
  * Combines filename with timestamp and hashes with SHA-256
  */

@@ -1,7 +1,7 @@
 // File upload functionality
 
 import { getKeplr, CHAIN_ID } from '../utils';
-import { encryptFile, encryptFileKeyWithECIES, calculateMerkleRoot, hashFilename, genAesBundle } from '../osd-blockchain-sdk';
+import { encryptFile, encryptFileKeyWithECIES, calculateMerkleRoot, buildMerkleTree, hashFilename, genAesBundle } from '../osd-blockchain-sdk';
 import { postFile } from '../postFile';
 import { submitChunkMetadata } from '../submitChunkMetadata';
 import { fetchFiles } from '../fetchFiles';
@@ -176,25 +176,18 @@ export async function uploadFile(file: File): Promise<void> {
         // - Combined merkle root from all chunks (for blockchain transaction)
         updateUploadingFileProgress(uploadId, 20, 'Calculating encrypted file hash...');
         
-        // Calculate merkle root for each chunk
+        // Calculate merkle root for each chunk (memory-efficient: one chunk at a time)
         const chunkMerkleRoots: string[] = [];
         for (const chunk of encryptedChunks) {
             const chunkData = await chunk.arrayBuffer();
             const chunkMerkleRoot = await calculateMerkleRoot(chunkData);
             chunkMerkleRoots.push(chunkMerkleRoot);
+            // Chunk data can now be garbage collected - we only keep the hash
         }
         
-        // Calculate combined merkle root (for blockchain transaction)
-        const combinedChunksArray = new Uint8Array(
-            encryptedChunks.reduce((total, chunk) => total + chunk.size, 0)
-        );
-        let offset = 0;
-        for (const chunk of encryptedChunks) {
-            const chunkData = await chunk.arrayBuffer();
-            combinedChunksArray.set(new Uint8Array(chunkData), offset);
-            offset += chunkData.byteLength;
-        }
-        const combinedMerkleRoot = await calculateMerkleRoot(combinedChunksArray.buffer);
+        // Calculate combined merkle root using Merkle tree (memory-efficient)
+        // This only works with hash values (32 bytes each) instead of full chunks
+        const combinedMerkleRoot = await buildMerkleTree(chunkMerkleRoots);
         
         // Calculate total encrypted size
         const totalEncryptedSize = encryptedChunks.reduce((sum, chunk) => sum + chunk.size, 0);
