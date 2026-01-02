@@ -391,7 +391,6 @@ export async function getStorageSessionSignature(walletAddress: string): Promise
 async function deriveECIESPrivateKeyFromWallet(walletAddress: string): Promise<string> {
     // Check cache first - if we've already derived this key, use cached version
     if (eciesPrivateKeyCache[walletAddress]) {
-        console.log('Using cached ECIES private key for', walletAddress);
         return eciesPrivateKeyCache[walletAddress];
     }
 
@@ -415,11 +414,9 @@ async function deriveECIESPrivateKeyFromWallet(walletAddress: string): Promise<s
     const { getPublicKey } = await import('@noble/secp256k1');
     const derivedPublicKey = getPublicKey(privateKeyBytes, false); // false = uncompressed
     const derivedPublicKeyHex = uint8ArrayToHex(derivedPublicKey);
-    console.log('Derived ECIES public key from private key:', derivedPublicKeyHex);
     
     // Cache the derived private key (in-memory only, not localStorage)
     eciesPrivateKeyCache[walletAddress] = privateKeyHex;
-    console.log('ECIES private key derived and cached for', walletAddress);
     
     return privateKeyHex;
 }
@@ -435,7 +432,6 @@ export function clearECIESPrivateKeyCache(): void {
     Object.keys(storageSessionSignatureCache).forEach(key => {
         delete storageSessionSignatureCache[key];
     });
-    console.log('ECIES private key cache and signature cache cleared');
 }
 
 /**
@@ -501,18 +497,9 @@ export async function getAccountPublicKey(address: string): Promise<Uint8Array> 
 
         const data = await response.json();
         
-        // Log the raw response from blockchain
-        console.log('=== ECIES Public Key Response from Blockchain ===');
-        console.log('Full response data:', JSON.stringify(data, null, 2));
-        
         // Extract ECIES public key from response (hex string, uncompressed format starting with 04)
         // Response structure: { "ecies_public_key": "04..." } (matches QueryECIESPublicKeyResponse protobuf)
         const pubKeyHex = data.ecies_public_key || '';
-        
-        console.log('Extracted public key (hex):', pubKeyHex);
-        console.log('Public key hex length:', pubKeyHex.length);
-        console.log('Public key (first 20 chars):', pubKeyHex.substring(0, 20));
-        console.log('Public key (last 20 chars):', pubKeyHex.substring(pubKeyHex.length - 20));
         
         if (!pubKeyHex) {
             throw new Error('ECIES public key not found in response');
@@ -520,9 +507,6 @@ export async function getAccountPublicKey(address: string): Promise<Uint8Array> 
 
         // Convert hex string to Uint8Array
         const pubKeyBytes = hexToUint8Array(pubKeyHex);
-        
-        console.log('Public key bytes length:', pubKeyBytes.length);
-        console.log('Public key bytes (first 10):', Array.from(pubKeyBytes.slice(0, 10)).map(b => b.toString(16).padStart(2, '0')).join(' '));
         
         // Validate format (should be 65 bytes, starting with 04 for uncompressed)
         if (pubKeyBytes.length !== 65 || pubKeyBytes[0] !== 0x04) {
@@ -646,7 +630,6 @@ async function getECIESPrivateKeyForAddress(recipientAddress: string): Promise<s
     // This will always produce the same key for the same wallet
     try {
         const privateKeyHex = await deriveECIESPrivateKeyFromWallet(recipientAddress);
-        console.log('Derived ECIES private key from wallet signature');
         return privateKeyHex;
     } catch (error) {
         // Check if user has uploaded ECIES public key to blockchain
@@ -735,7 +718,6 @@ export async function decryptFileKeyWithECIES(
             );
         }
         
-        console.log('✓ Verified: Derived private key matches blockchain public key');
     } catch (error) {
         console.error('Error verifying ECIES private key:', error);
         // Throw the error - don't proceed with decryption if keys don't match
@@ -995,28 +977,19 @@ export async function stringToAes(
     
     const [encryptedIVHex, encryptedKeyHex] = parts;
     
-    console.log('=== Decrypting AES Bundle Components ===');
-    console.log('Encrypted IV hex length:', encryptedIVHex.length);
-    console.log('Encrypted Key hex length:', encryptedKeyHex.length);
-    console.log('Private key hex length:', recipientPrivateKeyHex.length);
-    
     // Decrypt IV separately
-    console.log('Decrypting IV...');
     let iv: Uint8Array;
     try {
         iv = await eciesDecryptWithPrivateKey(recipientPrivateKeyHex, encryptedIVHex);
-        console.log('IV decrypted successfully, length:', iv.length);
     } catch (error) {
         console.error('Error decrypting IV:', error);
         throw new Error(`Failed to decrypt IV: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
     
     // Decrypt key separately
-    console.log('Decrypting AES key...');
     let keyBytes: Uint8Array;
     try {
         keyBytes = await eciesDecryptWithPrivateKey(recipientPrivateKeyHex, encryptedKeyHex);
-        console.log('AES key decrypted successfully, length:', keyBytes.length);
     } catch (error) {
         console.error('Error decrypting AES key:', error);
         throw new Error(`Failed to decrypt AES key: ${error instanceof Error ? error.message : 'Unknown error'}`);
