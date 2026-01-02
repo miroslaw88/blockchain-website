@@ -113,6 +113,19 @@ export interface MsgDeleteKeyResponse {
 }
 
 /**
+ * Chunk represents a single chunk of a file.
+ * This is used in MsgPostFile to provide chunk-level information.
+ */
+export interface Chunk {
+  /** index is the position of the chunk in the file (0-based). */
+  index: number;
+  /** hash is the hash of the chunk (computed client-side). */
+  hash: string;
+  /** size is the size of the chunk in bytes (optional but useful). */
+  size: number;
+}
+
+/**
  * MsgPostFile is the Msg/PostFile request type.
  * This message is used to post file metadata to the chain after the file has been
  * prepared (split into chunks and Merkle root computed) but before it's uploaded to storage providers.
@@ -143,6 +156,8 @@ export interface MsgPostFile {
   encryptedFileKey: string;
   /** extra_data is additional arbitrary data that will be emitted in the post_file event. */
   extraData: string;
+  /** chunks is the array of file chunks with their index, hash, and optional size. */
+  chunks: Chunk[];
 }
 
 /**
@@ -248,6 +263,29 @@ export interface MsgRegisterStorageProvider {
 export interface MsgRegisterStorageProviderResponse {
   /** provider is the registered storage provider information. */
   provider: StorageProvider | undefined;
+}
+
+/**
+ * MsgConfirmReplication confirms that a storage provider has successfully replicated a file.
+ * This message is sent by a storage provider after it has received and stored a file via replication.
+ */
+export interface MsgConfirmReplication {
+  /** provider is the address of the storage provider confirming replication (must match signer). */
+  provider: string;
+  /** provider_id is the unique identifier of the storage provider. */
+  providerId: string;
+  /** merkle_root is the Merkle root hash of the file that was replicated. */
+  merkleRoot: string;
+}
+
+/** MsgConfirmReplicationResponse returns the result of the replication confirmation. */
+export interface MsgConfirmReplicationResponse {
+  /** success indicates whether the confirmation was successful. */
+  success: boolean;
+  /** total_assigned_providers is the total number of providers now assigned to the file. */
+  totalAssignedProviders: number;
+  /** removed_from_queue indicates if the file was removed from the pending queue. */
+  removedFromQueue: boolean;
 }
 
 /**
@@ -1013,6 +1051,98 @@ export const MsgDeleteKeyResponse: MessageFns<MsgDeleteKeyResponse> = {
   },
 };
 
+function createBaseChunk(): Chunk {
+  return { index: 0, hash: "", size: 0 };
+}
+
+export const Chunk: MessageFns<Chunk> = {
+  encode(message: Chunk, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.index !== 0) {
+      writer.uint32(8).int64(message.index);
+    }
+    if (message.hash !== "") {
+      writer.uint32(18).string(message.hash);
+    }
+    if (message.size !== 0) {
+      writer.uint32(24).int64(message.size);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): Chunk {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseChunk();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.index = longToNumber(reader.int64());
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.hash = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.size = longToNumber(reader.int64());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): Chunk {
+    return {
+      index: isSet(object.index) ? globalThis.Number(object.index) : 0,
+      hash: isSet(object.hash) ? globalThis.String(object.hash) : "",
+      size: isSet(object.size) ? globalThis.Number(object.size) : 0,
+    };
+  },
+
+  toJSON(message: Chunk): unknown {
+    const obj: any = {};
+    if (message.index !== 0) {
+      obj.index = Math.round(message.index);
+    }
+    if (message.hash !== "") {
+      obj.hash = message.hash;
+    }
+    if (message.size !== 0) {
+      obj.size = Math.round(message.size);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<Chunk>, I>>(base?: I): Chunk {
+    return Chunk.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<Chunk>, I>>(object: I): Chunk {
+    const message = createBaseChunk();
+    message.index = object.index ?? 0;
+    message.hash = object.hash ?? "";
+    message.size = object.size ?? 0;
+    return message;
+  },
+};
+
 function createBaseMsgPostFile(): MsgPostFile {
   return {
     owner: "",
@@ -1023,6 +1153,7 @@ function createBaseMsgPostFile(): MsgPostFile {
     metadata: "",
     encryptedFileKey: "",
     extraData: "",
+    chunks: [],
   };
 }
 
@@ -1051,6 +1182,9 @@ export const MsgPostFile: MessageFns<MsgPostFile> = {
     }
     if (message.extraData !== "") {
       writer.uint32(66).string(message.extraData);
+    }
+    for (const v of message.chunks) {
+      Chunk.encode(v!, writer.uint32(74).fork()).join();
     }
     return writer;
   },
@@ -1126,6 +1260,14 @@ export const MsgPostFile: MessageFns<MsgPostFile> = {
           message.extraData = reader.string();
           continue;
         }
+        case 9: {
+          if (tag !== 74) {
+            break;
+          }
+
+          message.chunks.push(Chunk.decode(reader, reader.uint32()));
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1145,6 +1287,7 @@ export const MsgPostFile: MessageFns<MsgPostFile> = {
       metadata: isSet(object.metadata) ? globalThis.String(object.metadata) : "",
       encryptedFileKey: isSet(object.encryptedFileKey) ? globalThis.String(object.encryptedFileKey) : "",
       extraData: isSet(object.extraData) ? globalThis.String(object.extraData) : "",
+      chunks: globalThis.Array.isArray(object?.chunks) ? object.chunks.map((e: any) => Chunk.fromJSON(e)) : [],
     };
   },
 
@@ -1174,6 +1317,9 @@ export const MsgPostFile: MessageFns<MsgPostFile> = {
     if (message.extraData !== "") {
       obj.extraData = message.extraData;
     }
+    if (message.chunks?.length) {
+      obj.chunks = message.chunks.map((e) => Chunk.toJSON(e));
+    }
     return obj;
   },
 
@@ -1190,6 +1336,7 @@ export const MsgPostFile: MessageFns<MsgPostFile> = {
     message.metadata = object.metadata ?? "";
     message.encryptedFileKey = object.encryptedFileKey ?? "";
     message.extraData = object.extraData ?? "";
+    message.chunks = object.chunks?.map((e) => Chunk.fromPartial(e)) || [];
     return message;
   },
 };
@@ -1907,6 +2054,194 @@ export const MsgRegisterStorageProviderResponse: MessageFns<MsgRegisterStoragePr
   },
 };
 
+function createBaseMsgConfirmReplication(): MsgConfirmReplication {
+  return { provider: "", providerId: "", merkleRoot: "" };
+}
+
+export const MsgConfirmReplication: MessageFns<MsgConfirmReplication> = {
+  encode(message: MsgConfirmReplication, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.provider !== "") {
+      writer.uint32(10).string(message.provider);
+    }
+    if (message.providerId !== "") {
+      writer.uint32(18).string(message.providerId);
+    }
+    if (message.merkleRoot !== "") {
+      writer.uint32(26).string(message.merkleRoot);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): MsgConfirmReplication {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseMsgConfirmReplication();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.provider = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.providerId = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.merkleRoot = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): MsgConfirmReplication {
+    return {
+      provider: isSet(object.provider) ? globalThis.String(object.provider) : "",
+      providerId: isSet(object.providerId) ? globalThis.String(object.providerId) : "",
+      merkleRoot: isSet(object.merkleRoot) ? globalThis.String(object.merkleRoot) : "",
+    };
+  },
+
+  toJSON(message: MsgConfirmReplication): unknown {
+    const obj: any = {};
+    if (message.provider !== "") {
+      obj.provider = message.provider;
+    }
+    if (message.providerId !== "") {
+      obj.providerId = message.providerId;
+    }
+    if (message.merkleRoot !== "") {
+      obj.merkleRoot = message.merkleRoot;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<MsgConfirmReplication>, I>>(base?: I): MsgConfirmReplication {
+    return MsgConfirmReplication.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<MsgConfirmReplication>, I>>(object: I): MsgConfirmReplication {
+    const message = createBaseMsgConfirmReplication();
+    message.provider = object.provider ?? "";
+    message.providerId = object.providerId ?? "";
+    message.merkleRoot = object.merkleRoot ?? "";
+    return message;
+  },
+};
+
+function createBaseMsgConfirmReplicationResponse(): MsgConfirmReplicationResponse {
+  return { success: false, totalAssignedProviders: 0, removedFromQueue: false };
+}
+
+export const MsgConfirmReplicationResponse: MessageFns<MsgConfirmReplicationResponse> = {
+  encode(message: MsgConfirmReplicationResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.success !== false) {
+      writer.uint32(8).bool(message.success);
+    }
+    if (message.totalAssignedProviders !== 0) {
+      writer.uint32(16).int64(message.totalAssignedProviders);
+    }
+    if (message.removedFromQueue !== false) {
+      writer.uint32(24).bool(message.removedFromQueue);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): MsgConfirmReplicationResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseMsgConfirmReplicationResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.success = reader.bool();
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.totalAssignedProviders = longToNumber(reader.int64());
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.removedFromQueue = reader.bool();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): MsgConfirmReplicationResponse {
+    return {
+      success: isSet(object.success) ? globalThis.Boolean(object.success) : false,
+      totalAssignedProviders: isSet(object.totalAssignedProviders)
+        ? globalThis.Number(object.totalAssignedProviders)
+        : 0,
+      removedFromQueue: isSet(object.removedFromQueue) ? globalThis.Boolean(object.removedFromQueue) : false,
+    };
+  },
+
+  toJSON(message: MsgConfirmReplicationResponse): unknown {
+    const obj: any = {};
+    if (message.success !== false) {
+      obj.success = message.success;
+    }
+    if (message.totalAssignedProviders !== 0) {
+      obj.totalAssignedProviders = Math.round(message.totalAssignedProviders);
+    }
+    if (message.removedFromQueue !== false) {
+      obj.removedFromQueue = message.removedFromQueue;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<MsgConfirmReplicationResponse>, I>>(base?: I): MsgConfirmReplicationResponse {
+    return MsgConfirmReplicationResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<MsgConfirmReplicationResponse>, I>>(
+    object: I,
+  ): MsgConfirmReplicationResponse {
+    const message = createBaseMsgConfirmReplicationResponse();
+    message.success = object.success ?? false;
+    message.totalAssignedProviders = object.totalAssignedProviders ?? 0;
+    message.removedFromQueue = object.removedFromQueue ?? false;
+    return message;
+  },
+};
+
 function createBaseMsgCreateDirectory(): MsgCreateDirectory {
   return { owner: "", path: "" };
 }
@@ -2351,6 +2686,12 @@ export interface Msg {
    */
   RegisterStorageProvider(request: MsgRegisterStorageProvider): Promise<MsgRegisterStorageProviderResponse>;
   /**
+   * ConfirmReplication confirms that a storage provider has successfully replicated a file.
+   * This adds the provider to the file's assigned providers list and removes the file from
+   * the pending queue if enough providers are assigned.
+   */
+  ConfirmReplication(request: MsgConfirmReplication): Promise<MsgConfirmReplicationResponse>;
+  /**
    * CreateDirectory creates a directory for an owner.
    * Indexer nodes will listen to this event and create the directory in their local storage.
    */
@@ -2384,6 +2725,7 @@ export class MsgClientImpl implements Msg {
     this.UpdateIndexerRange = this.UpdateIndexerRange.bind(this);
     this.DeregisterIndexer = this.DeregisterIndexer.bind(this);
     this.RegisterStorageProvider = this.RegisterStorageProvider.bind(this);
+    this.ConfirmReplication = this.ConfirmReplication.bind(this);
     this.CreateDirectory = this.CreateDirectory.bind(this);
     this.DeleteFile = this.DeleteFile.bind(this);
     this.DeleteDirectory = this.DeleteDirectory.bind(this);
@@ -2446,6 +2788,12 @@ export class MsgClientImpl implements Msg {
     const data = MsgRegisterStorageProvider.encode(request).finish();
     const promise = this.rpc.request(this.service, "RegisterStorageProvider", data);
     return promise.then((data) => MsgRegisterStorageProviderResponse.decode(new BinaryReader(data)));
+  }
+
+  ConfirmReplication(request: MsgConfirmReplication): Promise<MsgConfirmReplicationResponse> {
+    const data = MsgConfirmReplication.encode(request).finish();
+    const promise = this.rpc.request(this.service, "ConfirmReplication", data);
+    return promise.then((data) => MsgConfirmReplicationResponse.decode(new BinaryReader(data)));
   }
 
   CreateDirectory(request: MsgCreateDirectory): Promise<MsgCreateDirectoryResponse> {

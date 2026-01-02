@@ -275,6 +275,28 @@ export interface QueryGetRandomStorageProvidersResponse {
   returnedCount: number;
 }
 
+/** QueryGetActiveStorageProvidersRequest is request type for the Query/GetActiveStorageProviders RPC method. */
+export interface QueryGetActiveStorageProvidersRequest {
+  /**
+   * provider_ids is an optional list of provider IDs to filter by.
+   * If empty or not provided, all active providers will be returned.
+   * If provided, only the specified providers that are active will be returned.
+   */
+  providerIds: string[];
+}
+
+/** QueryGetActiveStorageProvidersResponse is response type for the Query/GetActiveStorageProviders RPC method. */
+export interface QueryGetActiveStorageProvidersResponse {
+  /**
+   * providers is a list of active storage providers.
+   * If provider_ids were specified in the request, only those providers (if active) are included.
+   * If no provider_ids were specified, all active providers are included.
+   */
+  providers: StorageProvider[];
+  /** total_count is the total number of active providers returned. */
+  totalCount: number;
+}
+
 /** QueryFileDownloadRequest is request type for the Query/FileDownload RPC method. */
 export interface QueryFileDownloadRequest {
   /** merkle_root is the Merkle root hash of the file to download. */
@@ -2633,6 +2655,154 @@ export const QueryGetRandomStorageProvidersResponse: MessageFns<QueryGetRandomSt
   },
 };
 
+function createBaseQueryGetActiveStorageProvidersRequest(): QueryGetActiveStorageProvidersRequest {
+  return { providerIds: [] };
+}
+
+export const QueryGetActiveStorageProvidersRequest: MessageFns<QueryGetActiveStorageProvidersRequest> = {
+  encode(message: QueryGetActiveStorageProvidersRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.providerIds) {
+      writer.uint32(10).string(v!);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): QueryGetActiveStorageProvidersRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseQueryGetActiveStorageProvidersRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.providerIds.push(reader.string());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): QueryGetActiveStorageProvidersRequest {
+    return {
+      providerIds: globalThis.Array.isArray(object?.providerIds)
+        ? object.providerIds.map((e: any) => globalThis.String(e))
+        : [],
+    };
+  },
+
+  toJSON(message: QueryGetActiveStorageProvidersRequest): unknown {
+    const obj: any = {};
+    if (message.providerIds?.length) {
+      obj.providerIds = message.providerIds;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<QueryGetActiveStorageProvidersRequest>, I>>(
+    base?: I,
+  ): QueryGetActiveStorageProvidersRequest {
+    return QueryGetActiveStorageProvidersRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<QueryGetActiveStorageProvidersRequest>, I>>(
+    object: I,
+  ): QueryGetActiveStorageProvidersRequest {
+    const message = createBaseQueryGetActiveStorageProvidersRequest();
+    message.providerIds = object.providerIds?.map((e) => e) || [];
+    return message;
+  },
+};
+
+function createBaseQueryGetActiveStorageProvidersResponse(): QueryGetActiveStorageProvidersResponse {
+  return { providers: [], totalCount: 0 };
+}
+
+export const QueryGetActiveStorageProvidersResponse: MessageFns<QueryGetActiveStorageProvidersResponse> = {
+  encode(message: QueryGetActiveStorageProvidersResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.providers) {
+      StorageProvider.encode(v!, writer.uint32(10).fork()).join();
+    }
+    if (message.totalCount !== 0) {
+      writer.uint32(16).int64(message.totalCount);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): QueryGetActiveStorageProvidersResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseQueryGetActiveStorageProvidersResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.providers.push(StorageProvider.decode(reader, reader.uint32()));
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.totalCount = longToNumber(reader.int64());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): QueryGetActiveStorageProvidersResponse {
+    return {
+      providers: globalThis.Array.isArray(object?.providers)
+        ? object.providers.map((e: any) => StorageProvider.fromJSON(e))
+        : [],
+      totalCount: isSet(object.totalCount) ? globalThis.Number(object.totalCount) : 0,
+    };
+  },
+
+  toJSON(message: QueryGetActiveStorageProvidersResponse): unknown {
+    const obj: any = {};
+    if (message.providers?.length) {
+      obj.providers = message.providers.map((e) => StorageProvider.toJSON(e));
+    }
+    if (message.totalCount !== 0) {
+      obj.totalCount = Math.round(message.totalCount);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<QueryGetActiveStorageProvidersResponse>, I>>(
+    base?: I,
+  ): QueryGetActiveStorageProvidersResponse {
+    return QueryGetActiveStorageProvidersResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<QueryGetActiveStorageProvidersResponse>, I>>(
+    object: I,
+  ): QueryGetActiveStorageProvidersResponse {
+    const message = createBaseQueryGetActiveStorageProvidersResponse();
+    message.providers = object.providers?.map((e) => StorageProvider.fromPartial(e)) || [];
+    message.totalCount = object.totalCount ?? 0;
+    return message;
+  },
+};
+
 function createBaseQueryFileDownloadRequest(): QueryFileDownloadRequest {
   return { merkleRoot: "", owner: "" };
 }
@@ -2864,6 +3034,14 @@ export interface Query {
     request: QueryGetRandomStorageProvidersRequest,
   ): Promise<QueryGetRandomStorageProvidersResponse>;
   /**
+   * GetActiveStorageProviders queries all active storage providers.
+   * If provider_ids are specified in the request, only those providers will be returned (if they are active).
+   * If no provider_ids are specified, all active providers will be returned.
+   */
+  GetActiveStorageProviders(
+    request: QueryGetActiveStorageProvidersRequest,
+  ): Promise<QueryGetActiveStorageProvidersResponse>;
+  /**
    * FileDownload queries file information from an indexer for download.
    * It finds indexers that handle the file's merkle root prefix, randomly selects one,
    * and queries that indexer for the file metadata and storage provider information.
@@ -2894,6 +3072,7 @@ export class QueryClientImpl implements Query {
     this.IndexerExists = this.IndexerExists.bind(this);
     this.StorageProvider = this.StorageProvider.bind(this);
     this.GetRandomStorageProviders = this.GetRandomStorageProviders.bind(this);
+    this.GetActiveStorageProviders = this.GetActiveStorageProviders.bind(this);
     this.FileDownload = this.FileDownload.bind(this);
   }
   Params(request: QueryParamsRequest): Promise<QueryParamsResponse> {
@@ -2992,6 +3171,14 @@ export class QueryClientImpl implements Query {
     const data = QueryGetRandomStorageProvidersRequest.encode(request).finish();
     const promise = this.rpc.request(this.service, "GetRandomStorageProviders", data);
     return promise.then((data) => QueryGetRandomStorageProvidersResponse.decode(new BinaryReader(data)));
+  }
+
+  GetActiveStorageProviders(
+    request: QueryGetActiveStorageProvidersRequest,
+  ): Promise<QueryGetActiveStorageProvidersResponse> {
+    const data = QueryGetActiveStorageProvidersRequest.encode(request).finish();
+    const promise = this.rpc.request(this.service, "GetActiveStorageProviders", data);
+    return promise.then((data) => QueryGetActiveStorageProvidersResponse.decode(new BinaryReader(data)));
   }
 
   FileDownload(request: QueryFileDownloadRequest): Promise<QueryFileDownloadResponse> {

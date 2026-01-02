@@ -214,6 +214,23 @@ export async function uploadFile(file: File): Promise<void> {
             original_file_hash: originalFileHash, // Store original hash for decryption
             path: currentPath // Store current directory path
         };
+        // Build chunks array for blockchain
+        const chunks = encryptedChunks.map((chunk, index) => ({
+            index: index,
+            hash: chunkMerkleRoots[index],
+            size: chunk.size
+        }));
+        
+        console.log('\n=== Merkle Tree Data Sent to Blockchain ===');
+        console.log('Merkle Root:', combinedMerkleRoot);
+        console.log('Chunk Hashes (leaves):', chunkMerkleRoots);
+        console.log('Total Chunks:', chunkMerkleRoots.length);
+        console.log('Chunks Array:', chunks);
+        console.log('File Size (bytes):', totalEncryptedSize);
+        console.log('Expiration Time:', new Date(expirationTime * 1000).toISOString());
+        console.log('Metadata:', metadata);
+        console.log('=== End Blockchain Data ===\n');
+        
         const postFileResult = await postFile(
             combinedMerkleRoot,
             totalEncryptedSize,
@@ -221,6 +238,7 @@ export async function uploadFile(file: File): Promise<void> {
             3,
             metadata,
             encryptedFileKeyBase64,
+            chunks,
             dashManifest || undefined
         );
 
@@ -362,25 +380,19 @@ export async function uploadFile(file: File): Promise<void> {
             updateUploadingFileProgress(uploadId, 90, 'Submitting chunk metadata to indexers...');
             
             // Step 8: Submit chunk metadata to indexers
+            // Note: Chunks array is now sent to blockchain via postFile transaction
+            // Indexers should read chunks from the blockchain event instead
             try {
-                // Build chunks array with index, hash (merkle root), and size
-                const chunks = encryptedChunks.map((chunk, index) => ({
-                    index: index,
-                    hash: chunkMerkleRoots[index],
-                    size: chunk.size
-                }));
-                
-                console.log('Submitting chunk metadata:', {
+                console.log('Submitting chunk metadata to indexers:', {
                     owner: userAddress,
                     merkleRoot: combinedMerkleRoot,
                     encryptedFileKey: encryptedFileKeyBase64.substring(0, 50) + '...',
-                    chunks: chunks
+                    note: 'Chunks array is available in the blockchain post_file event'
                 });
                 
                 const chunkMetadataResult = await submitChunkMetadata(
                     userAddress,
                     combinedMerkleRoot,
-                    chunks,
                     encryptedFileKeyBase64
                 );
                 

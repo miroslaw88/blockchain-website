@@ -52,10 +52,10 @@ export async function queryIndexersForFile(merkleRoot: string): Promise<QueryInd
 }
 
 // Submit chunk metadata to indexers via HTTP
+// Note: Chunks array is no longer sent here - indexers should read it from the blockchain event
 export async function submitChunkMetadata(
     owner: string,
     merkleRoot: string,
-    chunks: ChunkInfo[],
     encryptedFileKey: string
 ): Promise<SubmitChunkMetadataResult> {
     // Step 1: Query which indexers handle this merkle root
@@ -81,12 +81,7 @@ export async function submitChunkMetadata(
             const payload = {
                 owner: owner,
                 merkleRoot: merkleRoot,
-                encryptedFileKey: encryptedFileKey,
-                chunks: chunks.map(chunk => ({
-                    index: chunk.index,
-                    hash: chunk.hash,
-                    size: chunk.size
-                }))
+                encryptedFileKey: encryptedFileKey
             };
             
              const response = await fetch(indexerUrl, {

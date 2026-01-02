@@ -790,8 +790,17 @@ export async function buildMerkleTree(chunkHashes: string[]): Promise<string> {
         throw new Error('Cannot build Merkle tree from empty hash array');
     }
     
+    console.log('=== Building Merkle Tree ===');
+    console.log(`Total chunks: ${chunkHashes.length}`);
+    console.log('Leaf hashes (chunk hashes):');
+    chunkHashes.forEach((hash, index) => {
+        console.log(`  Chunk ${index}: ${hash.substring(0, 16)}...${hash.substring(hash.length - 8)}`);
+    });
+    
     if (chunkHashes.length === 1) {
         // Single chunk - return its hash as the root
+        console.log('Single chunk - using chunk hash as root');
+        console.log(`Root hash: ${chunkHashes[0]}`);
         return chunkHashes[0];
     }
     
@@ -806,9 +815,19 @@ export async function buildMerkleTree(chunkHashes: string[]): Promise<string> {
     
     // Build Merkle tree by hashing pairs until one root remains
     let currentLevel: Uint8Array[] = hashBytes;
+    let level = 0;
+    const treeStructure: { level: number; hashes: string[] }[] = [];
+    
+    // Store initial level (leaves)
+    treeStructure.push({
+        level: level,
+        hashes: chunkHashes.map(h => h.substring(0, 16) + '...' + h.substring(h.length - 8))
+    });
     
     while (currentLevel.length > 1) {
+        level++;
         const nextLevel: Uint8Array[] = [];
+        const levelHashes: string[] = [];
         
         // Process pairs
         for (let i = 0; i < currentLevel.length; i += 2) {
@@ -819,7 +838,14 @@ export async function buildMerkleTree(chunkHashes: string[]): Promise<string> {
                 combined.set(currentLevel[i + 1], 32);
                 
                 const hashBuffer = await crypto.subtle.digest('SHA-256', combined);
-                nextLevel.push(new Uint8Array(hashBuffer));
+                const parentHash = new Uint8Array(hashBuffer);
+                nextLevel.push(parentHash);
+                
+                // Convert to hex for logging
+                const parentHashHex = Array.from(parentHash)
+                    .map(b => b.toString(16).padStart(2, '0'))
+                    .join('');
+                levelHashes.push(parentHashHex);
             } else {
                 // Odd number of hashes - hash with itself (duplicate the last hash)
                 const combined = new Uint8Array(64);
@@ -827,16 +853,47 @@ export async function buildMerkleTree(chunkHashes: string[]): Promise<string> {
                 combined.set(currentLevel[i], 32);
                 
                 const hashBuffer = await crypto.subtle.digest('SHA-256', combined);
-                nextLevel.push(new Uint8Array(hashBuffer));
+                const parentHash = new Uint8Array(hashBuffer);
+                nextLevel.push(parentHash);
+                
+                // Convert to hex for logging
+                const parentHashHex = Array.from(parentHash)
+                    .map(b => b.toString(16).padStart(2, '0'))
+                    .join('');
+                levelHashes.push(parentHashHex + ' (duplicated)');
             }
         }
+        
+        // Store this level
+        treeStructure.push({
+            level: level,
+            hashes: levelHashes.map(h => {
+                const hashPart = h.includes('(') ? h.split(' ')[0] : h;
+                return hashPart.substring(0, 16) + '...' + hashPart.substring(hashPart.length - 8) + (h.includes('(') ? ' (duplicated)' : '');
+            })
+        });
         
         currentLevel = nextLevel;
     }
     
     // Convert final root hash to hex string
     const finalHash = Array.from(currentLevel[0]);
-    return finalHash.map(b => b.toString(16).padStart(2, '0')).join('');
+    const rootHash = finalHash.map(b => b.toString(16).padStart(2, '0')).join('');
+    
+    // Log tree structure
+    console.log('\nMerkle Tree Structure:');
+    treeStructure.forEach(({ level, hashes }) => {
+        const indent = '  '.repeat(level);
+        console.log(`${indent}Level ${level} (${hashes.length} node${hashes.length !== 1 ? 's' : ''}):`);
+        hashes.forEach((hash, idx) => {
+            console.log(`${indent}  [${idx}]: ${hash}`);
+        });
+    });
+    
+    console.log(`\nRoot Hash (sent to blockchain): ${rootHash}`);
+    console.log('=== End Merkle Tree ===\n');
+    
+    return rootHash;
 }
 
 /**
@@ -1142,6 +1199,12 @@ export async function decryptFile(
  * Note: Requires @cosmjs/stargate and @cosmjs/proto-signing
  * Note: Requires generated protobuf types (MsgPostFile, StorageProvider, etc.)
  */
+export interface ChunkInfo {
+    index: number;
+    hash: string;
+    size: number;
+}
+
 export async function postFileToBlockchain(
     merkleRoot: string,
     sizeBytes: number,
@@ -1149,6 +1212,8 @@ export async function postFileToBlockchain(
     maxProofs: number,
     metadata: FileMetadata,
     encryptedFileKey: string,
+    chunks: ChunkInfo[],
+    extraData?: string,
     rpcEndpoint: string = 'https://storage.datavault.space/rpc',
     chainId: string = CHAIN_ID
 ): Promise<PostFileResult> {
@@ -1193,18 +1258,30 @@ export async function postFileToBlockchain(
     }
 
     // Create message using the generated type
-    // Note: encryptedFileKey will be added to the generated types after protobuf update
+    // All properties use camelCase as per protobuf generated types
+    const msgValue: any = {
+        owner: userAddress,
+        merkleRoot: merkleRoot,
+        sizeBytes: sizeBytes,
+        expirationTime: expirationTime,
+        maxProofs: maxProofs,
+        metadata: JSON.stringify(metadata),
+        encryptedFileKey: encryptedFileKey,
+        chunks: chunks.map(chunk => ({
+            index: chunk.index,
+            hash: chunk.hash,
+            size: chunk.size
+        }))
+    };
+    
+    // Add extraData field if provided (e.g., MPEG-DASH manifest)
+    if (extraData !== undefined) {
+        msgValue.extraData = extraData;
+    }
+    
     const msg = {
         typeUrl: '/osdblockchain.osdblockchain.v1.MsgPostFile',
-        value: MsgPostFile.fromPartial({
-            owner: userAddress,
-            merkleRoot: merkleRoot,
-            sizeBytes: sizeBytes,
-            expirationTime: expirationTime,
-            maxProofs: maxProofs,
-            metadata: JSON.stringify(metadata),
-            encryptedFileKey: encryptedFileKey
-        } as any) // Type assertion needed until generated types are updated
+        value: MsgPostFile.fromPartial(msgValue as any) // Type assertion needed until generated types are updated
     };
 
     // Send transaction
@@ -1248,7 +1325,24 @@ export async function postFileToBlockchain(
             const postFileEvent = txQuery.events.find((event: any) => event.type === 'post_file');
             
             if (postFileEvent && postFileEvent.attributes) {
+                console.log('=== PostFile Event Attributes (SDK) ===');
+                console.log('Total attributes:', postFileEvent.attributes.length);
+                
+                // Log all attributes to see what we're receiving
+                for (const attr of postFileEvent.attributes) {
+                    const key = typeof attr.key === 'string' 
+                        ? attr.key 
+                        : (attr.key ? new TextDecoder().decode(attr.key) : '');
+                    const value = typeof attr.value === 'string' 
+                        ? attr.value 
+                        : (attr.value ? new TextDecoder().decode(attr.value) : '');
+                    console.log(`Attribute: key="${key}", value="${value}"`);
+                }
+                console.log('=== End PostFile Event Attributes (SDK) ===');
+                
                 // Parse attributes to extract provider information
+                // Providers are stored as: provider_0_id, provider_0_address, provider_1_id, etc.
+                // Also check for camelCase: provider_0_Id, provider_0_Address
                 const providerMap = new Map<number, { id: string; address: string }>();
                 
                 for (const attr of postFileEvent.attributes) {
@@ -1260,21 +1354,41 @@ export async function postFileToBlockchain(
                         ? attr.value 
                         : (attr.value ? new TextDecoder().decode(attr.value) : '');
                     
-                    // Extract provider index and field from key (e.g., "provider_0_id" -> index: 0, field: "id")
-                    const providerMatch = key.match(/^provider_(\d+)_(id|address)$/);
+                    // Extract provider index and field from key
+                    // Format 1: provider0Id, provider0Address (camelCase, no underscores)
+                    // Format 2: provider_0_id, provider_0_address (snake_case with underscores)
+                    let providerMatch = key.match(/^provider(\d+)(Id|Address)$/i) || key.match(/^provider_(\d+)_(id|address)$/i);
                     if (providerMatch) {
-                        const index = parseInt(providerMatch[1], 10);
-                        const field = providerMatch[2];
+                        // Handle both formats
+                        let index: number;
+                        let field: string;
                         
-                        if (!providerMap.has(index)) {
-                            providerMap.set(index, { id: '', address: '' });
+                        if (providerMatch[1] && providerMatch[2]) {
+                            // Format 1: provider0Id -> match[1] = "0", match[2] = "Id"
+                            index = parseInt(providerMatch[1], 10);
+                            field = providerMatch[2].toLowerCase();
+                        } else if (providerMatch[3] && providerMatch[4]) {
+                            // Format 2: provider_0_id -> match[3] = "0", match[4] = "id"
+                            index = parseInt(providerMatch[3], 10);
+                            field = providerMatch[4].toLowerCase();
+                        } else {
+                            continue;
                         }
                         
-                        const provider = providerMap.get(index)!;
-                        if (field === 'id') {
-                            provider.id = value;
-                        } else if (field === 'address') {
-                            provider.address = value;
+                        // Normalize field name (Id -> id, Address -> address)
+                        if (field === 'id' || field === 'address') {
+                            if (!providerMap.has(index)) {
+                                providerMap.set(index, { id: '', address: '' });
+                            }
+                            
+                            const provider = providerMap.get(index)!;
+                            if (field === 'id') {
+                                provider.id = value;
+                                console.log(`Found provider ${index} id:`, value);
+                            } else if (field === 'address') {
+                                provider.address = value;
+                                console.log(`Found provider ${index} address:`, value);
+                            }
                         }
                     }
                 }

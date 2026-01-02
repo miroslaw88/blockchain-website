@@ -406,7 +406,8 @@ async function fetchSharedFiles(accountAddress: string, requesterAddress: string
                 const encryptedFileKey = entry.encrypted_file_key || '';
                 
                 // Get extraData from entry (e.g., MPEG-DASH manifest)
-                const extraData = entry.extraData || '';
+                // Indexer returns snake_case: extra_data
+                const extraData = entry.extra_data || '';
                 
                 // Get storage providers from entry
                 // The indexer returns storage_providers array in the entry object

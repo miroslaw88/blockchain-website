@@ -43,10 +43,24 @@ export async function showVideoPlayerModal(merkleRoot: string, fileName: string,
     }
     
     try {
+        console.log('=== Video Player Modal Opened ===');
+        console.log('merkleRoot:', merkleRoot);
+        console.log('fileName:', fileName);
+        console.log('extraData parameter:', extraData);
+        console.log('extraData type:', typeof extraData);
+        console.log('extraData length:', extraData?.length || 0);
+        console.log('chunkCount parameter:', chunkCount);
+        
         // Parse MPEG-DASH manifest from extraData
         if (!extraData) {
+            console.error('MPEG-DASH manifest not found - extraData is empty or undefined');
+            console.error('All parameters received:', { merkleRoot, fileName, extraData, chunkCount });
             throw new Error('MPEG-DASH manifest not found in file metadata');
         }
+        
+        console.log('extraData starts with <?xml:', extraData.startsWith('<?xml'));
+        console.log('extraData includes MPD:', extraData.includes('MPD'));
+        console.log('extraData first 200 chars:', extraData.substring(0, 200));
         
         // Parse the MPD manifest XML
         const parser = new DOMParser();

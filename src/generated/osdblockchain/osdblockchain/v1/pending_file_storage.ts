@@ -26,10 +26,35 @@ export interface PendingFileStorage {
   expirationTime: number;
   /** posted_at is when the file was posted (Unix timestamp, seconds). */
   postedAt: number;
+  /**
+   * assigned_providers is the list of provider IDs that have been assigned to store this file.
+   * This is used to track which providers already have the file and can replicate it to new providers.
+   */
+  assignedProviders: string[];
+  /**
+   * transaction_hash is the hash of the transaction that posted this file.
+   * If this is empty, the pending file will be removed from the queue.
+   */
+  transactionHash: string;
+  /**
+   * last_replication_request_time is the Unix timestamp (seconds) when the last replication request was sent.
+   * This is used to rate limit replication requests to at most once per minute per file.
+   */
+  lastReplicationRequestTime: number;
 }
 
 function createBasePendingFileStorage(): PendingFileStorage {
-  return { merkleRoot: "", owner: "", sizeBytes: 0, requiredProviders: 0, expirationTime: 0, postedAt: 0 };
+  return {
+    merkleRoot: "",
+    owner: "",
+    sizeBytes: 0,
+    requiredProviders: 0,
+    expirationTime: 0,
+    postedAt: 0,
+    assignedProviders: [],
+    transactionHash: "",
+    lastReplicationRequestTime: 0,
+  };
 }
 
 export const PendingFileStorage: MessageFns<PendingFileStorage> = {
@@ -51,6 +76,15 @@ export const PendingFileStorage: MessageFns<PendingFileStorage> = {
     }
     if (message.postedAt !== 0) {
       writer.uint32(48).int64(message.postedAt);
+    }
+    for (const v of message.assignedProviders) {
+      writer.uint32(58).string(v!);
+    }
+    if (message.transactionHash !== "") {
+      writer.uint32(66).string(message.transactionHash);
+    }
+    if (message.lastReplicationRequestTime !== 0) {
+      writer.uint32(72).int64(message.lastReplicationRequestTime);
     }
     return writer;
   },
@@ -110,6 +144,30 @@ export const PendingFileStorage: MessageFns<PendingFileStorage> = {
           message.postedAt = longToNumber(reader.int64());
           continue;
         }
+        case 7: {
+          if (tag !== 58) {
+            break;
+          }
+
+          message.assignedProviders.push(reader.string());
+          continue;
+        }
+        case 8: {
+          if (tag !== 66) {
+            break;
+          }
+
+          message.transactionHash = reader.string();
+          continue;
+        }
+        case 9: {
+          if (tag !== 72) {
+            break;
+          }
+
+          message.lastReplicationRequestTime = longToNumber(reader.int64());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -127,6 +185,13 @@ export const PendingFileStorage: MessageFns<PendingFileStorage> = {
       requiredProviders: isSet(object.requiredProviders) ? globalThis.Number(object.requiredProviders) : 0,
       expirationTime: isSet(object.expirationTime) ? globalThis.Number(object.expirationTime) : 0,
       postedAt: isSet(object.postedAt) ? globalThis.Number(object.postedAt) : 0,
+      assignedProviders: globalThis.Array.isArray(object?.assignedProviders)
+        ? object.assignedProviders.map((e: any) => globalThis.String(e))
+        : [],
+      transactionHash: isSet(object.transactionHash) ? globalThis.String(object.transactionHash) : "",
+      lastReplicationRequestTime: isSet(object.lastReplicationRequestTime)
+        ? globalThis.Number(object.lastReplicationRequestTime)
+        : 0,
     };
   },
 
@@ -150,6 +215,15 @@ export const PendingFileStorage: MessageFns<PendingFileStorage> = {
     if (message.postedAt !== 0) {
       obj.postedAt = Math.round(message.postedAt);
     }
+    if (message.assignedProviders?.length) {
+      obj.assignedProviders = message.assignedProviders;
+    }
+    if (message.transactionHash !== "") {
+      obj.transactionHash = message.transactionHash;
+    }
+    if (message.lastReplicationRequestTime !== 0) {
+      obj.lastReplicationRequestTime = Math.round(message.lastReplicationRequestTime);
+    }
     return obj;
   },
 
@@ -164,6 +238,9 @@ export const PendingFileStorage: MessageFns<PendingFileStorage> = {
     message.requiredProviders = object.requiredProviders ?? 0;
     message.expirationTime = object.expirationTime ?? 0;
     message.postedAt = object.postedAt ?? 0;
+    message.assignedProviders = object.assignedProviders?.map((e) => e) || [];
+    message.transactionHash = object.transactionHash ?? "";
+    message.lastReplicationRequestTime = object.lastReplicationRequestTime ?? 0;
     return message;
   },
 };

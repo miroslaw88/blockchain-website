@@ -221,8 +221,17 @@ export async function fetchFiles(walletAddress: string, path: string = ''): Prom
                 // Get chunk_count from indexer response
                 const chunkCount = entry.chunk_count || 1;
                 // Get extraData from indexer response (e.g., MPEG-DASH manifest)
-                // Support both snake_case (from API) and camelCase
-                const extraDataRaw = entry.extra_data || entry.extraData || '';
+                // Indexer returns snake_case: extra_data
+                console.log('=== File Entry Data (from indexer) ===');
+                console.log('Full entry object:', entry);
+                console.log('entry.extra_data (snake_case):', entry.extra_data);
+                console.log('entry keys:', Object.keys(entry));
+                
+                const extraDataRaw = entry.extra_data || '';
+                console.log('extraDataRaw (after fallback):', extraDataRaw);
+                console.log('extraDataRaw type:', typeof extraDataRaw);
+                console.log('extraDataRaw length:', extraDataRaw?.length || 0);
+                
                 // Decode Unicode escape sequences and HTML entities
                 // The API may return Unicode escapes like \u003c (<) and \u003e (>)
                 let extraData = extraDataRaw;
@@ -230,7 +239,9 @@ export async function fetchFiles(walletAddress: string, path: string = ''): Prom
                     // Try to decode as JSON string first (handles all Unicode escapes)
                     try {
                         extraData = JSON.parse(`"${extraDataRaw.replace(/"/g, '\\"')}"`);
+                        console.log('extraData after JSON.parse:', extraData);
                     } catch (e) {
+                        console.log('JSON.parse failed, using manual decode:', e);
                         // If JSON parsing fails, manually decode common escapes
                         extraData = extraDataRaw
                             .replace(/\\u003c/g, '<')
@@ -239,10 +250,25 @@ export async function fetchFiles(walletAddress: string, path: string = ''): Prom
                             .replace(/\\n/g, '\n')
                             .replace(/\\"/g, '"')
                             .replace(/\\'/g, "'");
+                        console.log('extraData after manual decode:', extraData);
                     }
+                } else {
+                    console.warn('extraDataRaw is empty or falsy');
                 }
                 
+                console.log('Final extraData:', extraData);
+                console.log('Final extraData length:', extraData?.length || 0);
+                console.log('Final extraData starts with <?xml:', extraData?.startsWith('<?xml') || false);
+                console.log('Final extraData includes MPD:', extraData?.includes('MPD') || false);
+                console.log('=== End File Entry Data ===');
+                
                 // Generate thumbnail HTML and add encrypted_file_key as data attribute
+                console.log('=== Generating Thumbnail Template ===');
+                console.log('extraData being passed to template:', extraData);
+                console.log('extraData type:', typeof extraData);
+                console.log('extraData length:', extraData?.length || 0);
+                console.log('chunkCount being passed to template:', chunkCount);
+                
                 const thumbnailHTML = getFileThumbnailTemplate(
                     fileName,
                     fileSize,
@@ -255,6 +281,17 @@ export async function fetchFiles(walletAddress: string, path: string = ''): Prom
                     extraData || undefined,
                     chunkCount
                 );
+                
+                // Check if data-extra-data is in the generated HTML
+                const hasExtraDataAttr = thumbnailHTML.includes('data-extra-data');
+                console.log('Thumbnail HTML includes data-extra-data attribute:', hasExtraDataAttr);
+                if (hasExtraDataAttr) {
+                    const match = thumbnailHTML.match(/data-extra-data="([^"]*)"/);
+                    if (match) {
+                        console.log('Found data-extra-data in HTML (first 200 chars):', match[1]?.substring(0, 200));
+                    }
+                }
+                console.log('=== End Thumbnail Template Generation ===');
                 
                 // Add encrypted_file_key to all buttons' data attributes (download, share, delete)
                 if (encryptedFileKey) {
@@ -407,14 +444,36 @@ function attachEventHandlers(walletAddress: string, currentPath: string): void {
         
         // Get extra_data (MPEG-DASH manifest) and chunk_count from the thumbnail card
         const $thumbnail = $button.closest('.file-thumbnail');
+        console.log('=== Video Play Button Clicked ===');
+        console.log('Merkle Root:', merkleRoot);
+        console.log('File Name:', fileName);
+        console.log('Thumbnail element:', $thumbnail);
+        console.log('Thumbnail data attributes:', {
+            'data-extra-data': $thumbnail.attr('data-extra-data'),
+            'data-chunk-count': $thumbnail.attr('data-chunk-count'),
+            'data-merkle-root': $thumbnail.attr('data-merkle-root'),
+            'data-file-name': $thumbnail.attr('data-file-name')
+        });
+        
         const extraData = $thumbnail.attr('data-extra-data');
         const chunkCountAttr = $thumbnail.attr('data-chunk-count');
         const chunkCount = chunkCountAttr ? parseInt(chunkCountAttr, 10) : undefined;
         
+        console.log('extraData from data attribute:', extraData);
+        console.log('extraData type:', typeof extraData);
+        console.log('extraData length:', extraData?.length || 0);
+        console.log('chunkCount:', chunkCount);
+        
         if (!extraData) {
+            console.error('Video manifest not found - extraData is empty or undefined');
+            console.error('Available data attributes on thumbnail:', Object.fromEntries(
+                Array.from($thumbnail[0]?.attributes || []).map(attr => [attr.name, attr.value])
+            ));
             showToast('Video manifest not found', 'error');
             return;
         }
+        
+        console.log('=== End Video Play Button Click ===');
         
         // Decode HTML entities and Unicode escape sequences
         const decodedExtraData = extraData
