@@ -3,7 +3,6 @@
 import { getKeplr, CHAIN_ID } from '../utils';
 import { encryptFile, encryptFileKeyWithECIES, calculateMerkleRoot, buildMerkleTree, hashFilename, genAesBundle } from '../osd-blockchain-sdk';
 import { postFile } from '../postFile';
-import { submitChunkMetadata } from '../submitChunkMetadata';
 import { fetchFiles } from '../fetchFiles';
 import { showUploadProgressToast, updateUploadingFileProgress, finalizeUploadingFile } from './uploadProgress';
 import { showToast } from '../fetchFiles';
@@ -377,39 +376,7 @@ export async function uploadFile(file: File): Promise<void> {
             }
             
             console.log('Upload to storage provider completed successfully');
-            updateUploadingFileProgress(uploadId, 90, 'Submitting chunk metadata to indexers...');
-            
-            // Step 8: Submit chunk metadata to indexers
-            // Note: Chunks array is now sent to blockchain via postFile transaction
-            // Indexers should read chunks from the blockchain event instead
-            try {
-                console.log('Submitting chunk metadata to indexers:', {
-                    owner: userAddress,
-                    merkleRoot: combinedMerkleRoot,
-                    encryptedFileKey: encryptedFileKeyBase64.substring(0, 50) + '...',
-                    note: 'Chunks array is available in the blockchain post_file event'
-                });
-                
-                const chunkMetadataResult = await submitChunkMetadata(
-                    userAddress,
-                    combinedMerkleRoot,
-                    encryptedFileKeyBase64
-                );
-                
-                console.log(`Chunk metadata submitted: ${chunkMetadataResult.successCount} success(es), ${chunkMetadataResult.failureCount} failure(s)`);
-                console.log('Successful indexers:', chunkMetadataResult.indexers.map(i => i.indexer_id));
-                
-                if (chunkMetadataResult.successCount > 0) {
-                    updateUploadingFileProgress(uploadId, 95, `Finalizing... (${chunkMetadataResult.successCount} indexer(s) updated)`);
-                } else {
-                    updateUploadingFileProgress(uploadId, 95, 'Finalizing... (chunk metadata submission failed)');
-                }
-            } catch (error) {
-                console.error('Failed to submit chunk metadata:', error);
-                // Don't fail the entire upload if chunk metadata submission fails
-                // The file is already uploaded to the storage provider
-                updateUploadingFileProgress(uploadId, 95, 'Finalizing... (chunk metadata submission failed)');
-            }
+            updateUploadingFileProgress(uploadId, 95, 'Finalizing...');
         } else {
             console.warn('No storage providers assigned. File may be added to pending queue.');
             console.log('PostFileResult:', postFileResult);

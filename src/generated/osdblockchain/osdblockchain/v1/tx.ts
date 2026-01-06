@@ -204,23 +204,6 @@ export interface MsgRegisterIndexerResponse {
 }
 
 /**
- * MsgUpdateIndexerRange updates an indexer's range (authority-only).
- * This is used for manual range adjustments or during prefix splits.
- */
-export interface MsgUpdateIndexerRange {
-  /** authority is the address that can update ranges (typically x/gov module). */
-  authority: string;
-  /** indexer_id is the indexer to update. */
-  indexerId: string;
-  /** new_range is the new range assignment. */
-  newRange: IndexerRange | undefined;
-}
-
-/** MsgUpdateIndexerRangeResponse defines the response structure. */
-export interface MsgUpdateIndexerRangeResponse {
-}
-
-/**
  * MsgDeregisterIndexer deactivates an indexer and triggers range recalculation.
  * When an indexer is deregistered, the system automatically recalculates all indexer
  * ranges based on the new active count, which may cause existing indexers to have
@@ -1591,143 +1574,6 @@ export const MsgRegisterIndexerResponse: MessageFns<MsgRegisterIndexerResponse> 
   },
 };
 
-function createBaseMsgUpdateIndexerRange(): MsgUpdateIndexerRange {
-  return { authority: "", indexerId: "", newRange: undefined };
-}
-
-export const MsgUpdateIndexerRange: MessageFns<MsgUpdateIndexerRange> = {
-  encode(message: MsgUpdateIndexerRange, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.authority !== "") {
-      writer.uint32(10).string(message.authority);
-    }
-    if (message.indexerId !== "") {
-      writer.uint32(18).string(message.indexerId);
-    }
-    if (message.newRange !== undefined) {
-      IndexerRange.encode(message.newRange, writer.uint32(26).fork()).join();
-    }
-    return writer;
-  },
-
-  decode(input: BinaryReader | Uint8Array, length?: number): MsgUpdateIndexerRange {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    let end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseMsgUpdateIndexerRange();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1: {
-          if (tag !== 10) {
-            break;
-          }
-
-          message.authority = reader.string();
-          continue;
-        }
-        case 2: {
-          if (tag !== 18) {
-            break;
-          }
-
-          message.indexerId = reader.string();
-          continue;
-        }
-        case 3: {
-          if (tag !== 26) {
-            break;
-          }
-
-          message.newRange = IndexerRange.decode(reader, reader.uint32());
-          continue;
-        }
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skip(tag & 7);
-    }
-    return message;
-  },
-
-  fromJSON(object: any): MsgUpdateIndexerRange {
-    return {
-      authority: isSet(object.authority) ? globalThis.String(object.authority) : "",
-      indexerId: isSet(object.indexerId) ? globalThis.String(object.indexerId) : "",
-      newRange: isSet(object.newRange) ? IndexerRange.fromJSON(object.newRange) : undefined,
-    };
-  },
-
-  toJSON(message: MsgUpdateIndexerRange): unknown {
-    const obj: any = {};
-    if (message.authority !== "") {
-      obj.authority = message.authority;
-    }
-    if (message.indexerId !== "") {
-      obj.indexerId = message.indexerId;
-    }
-    if (message.newRange !== undefined) {
-      obj.newRange = IndexerRange.toJSON(message.newRange);
-    }
-    return obj;
-  },
-
-  create<I extends Exact<DeepPartial<MsgUpdateIndexerRange>, I>>(base?: I): MsgUpdateIndexerRange {
-    return MsgUpdateIndexerRange.fromPartial(base ?? ({} as any));
-  },
-  fromPartial<I extends Exact<DeepPartial<MsgUpdateIndexerRange>, I>>(object: I): MsgUpdateIndexerRange {
-    const message = createBaseMsgUpdateIndexerRange();
-    message.authority = object.authority ?? "";
-    message.indexerId = object.indexerId ?? "";
-    message.newRange = (object.newRange !== undefined && object.newRange !== null)
-      ? IndexerRange.fromPartial(object.newRange)
-      : undefined;
-    return message;
-  },
-};
-
-function createBaseMsgUpdateIndexerRangeResponse(): MsgUpdateIndexerRangeResponse {
-  return {};
-}
-
-export const MsgUpdateIndexerRangeResponse: MessageFns<MsgUpdateIndexerRangeResponse> = {
-  encode(_: MsgUpdateIndexerRangeResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    return writer;
-  },
-
-  decode(input: BinaryReader | Uint8Array, length?: number): MsgUpdateIndexerRangeResponse {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    let end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseMsgUpdateIndexerRangeResponse();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skip(tag & 7);
-    }
-    return message;
-  },
-
-  fromJSON(_: any): MsgUpdateIndexerRangeResponse {
-    return {};
-  },
-
-  toJSON(_: MsgUpdateIndexerRangeResponse): unknown {
-    const obj: any = {};
-    return obj;
-  },
-
-  create<I extends Exact<DeepPartial<MsgUpdateIndexerRangeResponse>, I>>(base?: I): MsgUpdateIndexerRangeResponse {
-    return MsgUpdateIndexerRangeResponse.fromPartial(base ?? ({} as any));
-  },
-  fromPartial<I extends Exact<DeepPartial<MsgUpdateIndexerRangeResponse>, I>>(_: I): MsgUpdateIndexerRangeResponse {
-    const message = createBaseMsgUpdateIndexerRangeResponse();
-    return message;
-  },
-};
-
 function createBaseMsgDeregisterIndexer(): MsgDeregisterIndexer {
   return { authority: "", indexerId: "" };
 }
@@ -2672,8 +2518,6 @@ export interface Msg {
   PostFile(request: MsgPostFile): Promise<MsgPostFileResponse>;
   /** RegisterIndexer registers a new indexer and assigns it a hash prefix range. */
   RegisterIndexer(request: MsgRegisterIndexer): Promise<MsgRegisterIndexerResponse>;
-  /** UpdateIndexerRange updates an indexer's assigned range (authority-only). */
-  UpdateIndexerRange(request: MsgUpdateIndexerRange): Promise<MsgUpdateIndexerRangeResponse>;
   /**
    * DeregisterIndexer deactivates an indexer and recalculates ranges for all remaining active indexers.
    * When an indexer is deregistered, the system automatically recalculates all indexer
@@ -2722,7 +2566,6 @@ export class MsgClientImpl implements Msg {
     this.DeleteKey = this.DeleteKey.bind(this);
     this.PostFile = this.PostFile.bind(this);
     this.RegisterIndexer = this.RegisterIndexer.bind(this);
-    this.UpdateIndexerRange = this.UpdateIndexerRange.bind(this);
     this.DeregisterIndexer = this.DeregisterIndexer.bind(this);
     this.RegisterStorageProvider = this.RegisterStorageProvider.bind(this);
     this.ConfirmReplication = this.ConfirmReplication.bind(this);
@@ -2770,12 +2613,6 @@ export class MsgClientImpl implements Msg {
     const data = MsgRegisterIndexer.encode(request).finish();
     const promise = this.rpc.request(this.service, "RegisterIndexer", data);
     return promise.then((data) => MsgRegisterIndexerResponse.decode(new BinaryReader(data)));
-  }
-
-  UpdateIndexerRange(request: MsgUpdateIndexerRange): Promise<MsgUpdateIndexerRangeResponse> {
-    const data = MsgUpdateIndexerRange.encode(request).finish();
-    const promise = this.rpc.request(this.service, "UpdateIndexerRange", data);
-    return promise.then((data) => MsgUpdateIndexerRangeResponse.decode(new BinaryReader(data)));
   }
 
   DeregisterIndexer(request: MsgDeregisterIndexer): Promise<MsgDeregisterIndexerResponse> {

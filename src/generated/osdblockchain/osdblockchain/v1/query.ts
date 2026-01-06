@@ -8,7 +8,7 @@
 import { BinaryReader, BinaryWriter } from "@bufbuild/protobuf/wire";
 import { PageRequest, PageResponse } from "../../../cosmos/base/query/v1beta1/pagination";
 import { FileMetadata } from "./file_metadata";
-import { IndexerRange, PrefixLoad } from "./indexer";
+import { IndexerRange } from "./indexer";
 import { Params } from "./params";
 import { StorageProvider } from "./storage_provider";
 
@@ -161,61 +161,14 @@ export interface QueryActiveIndexersResponse {
 export interface QueryIndexersForFileRequest {
   /** merkle_root is the file hash to find indexers for. */
   merkleRoot: string;
+  /** owner is the address of the file owner (required for sharding-based indexer assignment). */
+  owner: string;
 }
 
 /** QueryIndexersForFileResponse is response type for the Query/IndexersForFile RPC method. */
 export interface QueryIndexersForFileResponse {
   /** indexers are the indexers that handle this file hash. */
   indexers: IndexerRange[];
-}
-
-/** QueryPrefixLoadRequest is request type for the Query/PrefixLoad RPC method. */
-export interface QueryPrefixLoadRequest {
-  /** prefix is the hash prefix to query (e.g., "AB"). */
-  prefix: string;
-  /** depth is the prefix depth (number of hex digits, e.g., 2, 4, 6). */
-  depth: number;
-}
-
-/** QueryPrefixLoadResponse is response type for the Query/PrefixLoad RPC method. */
-export interface QueryPrefixLoadResponse {
-  /** load is the prefix load information. */
-  load: PrefixLoad | undefined;
-}
-
-/** QueryPrefixLoadsRequest is request type for the Query/PrefixLoads RPC method. */
-export interface QueryPrefixLoadsRequest {
-  /** pagination defines an optional pagination for the request. */
-  pagination: PageRequest | undefined;
-}
-
-/** QueryPrefixLoadsResponse is response type for the Query/PrefixLoads RPC method. */
-export interface QueryPrefixLoadsResponse {
-  /** loads are all prefix loads. */
-  loads: PrefixLoad[];
-  /** pagination defines the pagination in the response. */
-  pagination: PageResponse | undefined;
-}
-
-/** QueryIndexersByGroupRequest is request type for the Query/IndexersByGroup RPC method. */
-export interface QueryIndexersByGroupRequest {
-  /**
-   * group_id is the replication group ID (0, 1, 2, ...).
-   * Groups are defined as every 3 indexers: Group 0 = indexers 1-3, Group 1 = indexers 4-6, etc.
-   */
-  groupId: number;
-}
-
-/** QueryIndexersByGroupResponse is response type for the Query/IndexersByGroup RPC method. */
-export interface QueryIndexersByGroupResponse {
-  /** indexers are all indexers in the specified group. */
-  indexers: IndexerRange[];
-  /** group_id is the replication group ID that was queried. */
-  groupId: number;
-  /** hash_prefix_start is the start of the prefix range assigned to this group. */
-  hashPrefixStart: string;
-  /** hash_prefix_end is the end of the prefix range assigned to this group. */
-  hashPrefixEnd: string;
 }
 
 /** QueryIndexerExistsRequest is request type for the Query/IndexerExists RPC method. */
@@ -1662,13 +1615,16 @@ export const QueryActiveIndexersResponse: MessageFns<QueryActiveIndexersResponse
 };
 
 function createBaseQueryIndexersForFileRequest(): QueryIndexersForFileRequest {
-  return { merkleRoot: "" };
+  return { merkleRoot: "", owner: "" };
 }
 
 export const QueryIndexersForFileRequest: MessageFns<QueryIndexersForFileRequest> = {
   encode(message: QueryIndexersForFileRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.merkleRoot !== "") {
       writer.uint32(10).string(message.merkleRoot);
+    }
+    if (message.owner !== "") {
+      writer.uint32(18).string(message.owner);
     }
     return writer;
   },
@@ -1688,6 +1644,14 @@ export const QueryIndexersForFileRequest: MessageFns<QueryIndexersForFileRequest
           message.merkleRoot = reader.string();
           continue;
         }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.owner = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1698,13 +1662,19 @@ export const QueryIndexersForFileRequest: MessageFns<QueryIndexersForFileRequest
   },
 
   fromJSON(object: any): QueryIndexersForFileRequest {
-    return { merkleRoot: isSet(object.merkleRoot) ? globalThis.String(object.merkleRoot) : "" };
+    return {
+      merkleRoot: isSet(object.merkleRoot) ? globalThis.String(object.merkleRoot) : "",
+      owner: isSet(object.owner) ? globalThis.String(object.owner) : "",
+    };
   },
 
   toJSON(message: QueryIndexersForFileRequest): unknown {
     const obj: any = {};
     if (message.merkleRoot !== "") {
       obj.merkleRoot = message.merkleRoot;
+    }
+    if (message.owner !== "") {
+      obj.owner = message.owner;
     }
     return obj;
   },
@@ -1715,6 +1685,7 @@ export const QueryIndexersForFileRequest: MessageFns<QueryIndexersForFileRequest
   fromPartial<I extends Exact<DeepPartial<QueryIndexersForFileRequest>, I>>(object: I): QueryIndexersForFileRequest {
     const message = createBaseQueryIndexersForFileRequest();
     message.merkleRoot = object.merkleRoot ?? "";
+    message.owner = object.owner ?? "";
     return message;
   },
 };
@@ -1777,448 +1748,6 @@ export const QueryIndexersForFileResponse: MessageFns<QueryIndexersForFileRespon
   fromPartial<I extends Exact<DeepPartial<QueryIndexersForFileResponse>, I>>(object: I): QueryIndexersForFileResponse {
     const message = createBaseQueryIndexersForFileResponse();
     message.indexers = object.indexers?.map((e) => IndexerRange.fromPartial(e)) || [];
-    return message;
-  },
-};
-
-function createBaseQueryPrefixLoadRequest(): QueryPrefixLoadRequest {
-  return { prefix: "", depth: 0 };
-}
-
-export const QueryPrefixLoadRequest: MessageFns<QueryPrefixLoadRequest> = {
-  encode(message: QueryPrefixLoadRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.prefix !== "") {
-      writer.uint32(10).string(message.prefix);
-    }
-    if (message.depth !== 0) {
-      writer.uint32(16).int32(message.depth);
-    }
-    return writer;
-  },
-
-  decode(input: BinaryReader | Uint8Array, length?: number): QueryPrefixLoadRequest {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    let end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseQueryPrefixLoadRequest();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1: {
-          if (tag !== 10) {
-            break;
-          }
-
-          message.prefix = reader.string();
-          continue;
-        }
-        case 2: {
-          if (tag !== 16) {
-            break;
-          }
-
-          message.depth = reader.int32();
-          continue;
-        }
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skip(tag & 7);
-    }
-    return message;
-  },
-
-  fromJSON(object: any): QueryPrefixLoadRequest {
-    return {
-      prefix: isSet(object.prefix) ? globalThis.String(object.prefix) : "",
-      depth: isSet(object.depth) ? globalThis.Number(object.depth) : 0,
-    };
-  },
-
-  toJSON(message: QueryPrefixLoadRequest): unknown {
-    const obj: any = {};
-    if (message.prefix !== "") {
-      obj.prefix = message.prefix;
-    }
-    if (message.depth !== 0) {
-      obj.depth = Math.round(message.depth);
-    }
-    return obj;
-  },
-
-  create<I extends Exact<DeepPartial<QueryPrefixLoadRequest>, I>>(base?: I): QueryPrefixLoadRequest {
-    return QueryPrefixLoadRequest.fromPartial(base ?? ({} as any));
-  },
-  fromPartial<I extends Exact<DeepPartial<QueryPrefixLoadRequest>, I>>(object: I): QueryPrefixLoadRequest {
-    const message = createBaseQueryPrefixLoadRequest();
-    message.prefix = object.prefix ?? "";
-    message.depth = object.depth ?? 0;
-    return message;
-  },
-};
-
-function createBaseQueryPrefixLoadResponse(): QueryPrefixLoadResponse {
-  return { load: undefined };
-}
-
-export const QueryPrefixLoadResponse: MessageFns<QueryPrefixLoadResponse> = {
-  encode(message: QueryPrefixLoadResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.load !== undefined) {
-      PrefixLoad.encode(message.load, writer.uint32(10).fork()).join();
-    }
-    return writer;
-  },
-
-  decode(input: BinaryReader | Uint8Array, length?: number): QueryPrefixLoadResponse {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    let end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseQueryPrefixLoadResponse();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1: {
-          if (tag !== 10) {
-            break;
-          }
-
-          message.load = PrefixLoad.decode(reader, reader.uint32());
-          continue;
-        }
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skip(tag & 7);
-    }
-    return message;
-  },
-
-  fromJSON(object: any): QueryPrefixLoadResponse {
-    return { load: isSet(object.load) ? PrefixLoad.fromJSON(object.load) : undefined };
-  },
-
-  toJSON(message: QueryPrefixLoadResponse): unknown {
-    const obj: any = {};
-    if (message.load !== undefined) {
-      obj.load = PrefixLoad.toJSON(message.load);
-    }
-    return obj;
-  },
-
-  create<I extends Exact<DeepPartial<QueryPrefixLoadResponse>, I>>(base?: I): QueryPrefixLoadResponse {
-    return QueryPrefixLoadResponse.fromPartial(base ?? ({} as any));
-  },
-  fromPartial<I extends Exact<DeepPartial<QueryPrefixLoadResponse>, I>>(object: I): QueryPrefixLoadResponse {
-    const message = createBaseQueryPrefixLoadResponse();
-    message.load = (object.load !== undefined && object.load !== null)
-      ? PrefixLoad.fromPartial(object.load)
-      : undefined;
-    return message;
-  },
-};
-
-function createBaseQueryPrefixLoadsRequest(): QueryPrefixLoadsRequest {
-  return { pagination: undefined };
-}
-
-export const QueryPrefixLoadsRequest: MessageFns<QueryPrefixLoadsRequest> = {
-  encode(message: QueryPrefixLoadsRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.pagination !== undefined) {
-      PageRequest.encode(message.pagination, writer.uint32(10).fork()).join();
-    }
-    return writer;
-  },
-
-  decode(input: BinaryReader | Uint8Array, length?: number): QueryPrefixLoadsRequest {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    let end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseQueryPrefixLoadsRequest();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1: {
-          if (tag !== 10) {
-            break;
-          }
-
-          message.pagination = PageRequest.decode(reader, reader.uint32());
-          continue;
-        }
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skip(tag & 7);
-    }
-    return message;
-  },
-
-  fromJSON(object: any): QueryPrefixLoadsRequest {
-    return { pagination: isSet(object.pagination) ? PageRequest.fromJSON(object.pagination) : undefined };
-  },
-
-  toJSON(message: QueryPrefixLoadsRequest): unknown {
-    const obj: any = {};
-    if (message.pagination !== undefined) {
-      obj.pagination = PageRequest.toJSON(message.pagination);
-    }
-    return obj;
-  },
-
-  create<I extends Exact<DeepPartial<QueryPrefixLoadsRequest>, I>>(base?: I): QueryPrefixLoadsRequest {
-    return QueryPrefixLoadsRequest.fromPartial(base ?? ({} as any));
-  },
-  fromPartial<I extends Exact<DeepPartial<QueryPrefixLoadsRequest>, I>>(object: I): QueryPrefixLoadsRequest {
-    const message = createBaseQueryPrefixLoadsRequest();
-    message.pagination = (object.pagination !== undefined && object.pagination !== null)
-      ? PageRequest.fromPartial(object.pagination)
-      : undefined;
-    return message;
-  },
-};
-
-function createBaseQueryPrefixLoadsResponse(): QueryPrefixLoadsResponse {
-  return { loads: [], pagination: undefined };
-}
-
-export const QueryPrefixLoadsResponse: MessageFns<QueryPrefixLoadsResponse> = {
-  encode(message: QueryPrefixLoadsResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    for (const v of message.loads) {
-      PrefixLoad.encode(v!, writer.uint32(10).fork()).join();
-    }
-    if (message.pagination !== undefined) {
-      PageResponse.encode(message.pagination, writer.uint32(18).fork()).join();
-    }
-    return writer;
-  },
-
-  decode(input: BinaryReader | Uint8Array, length?: number): QueryPrefixLoadsResponse {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    let end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseQueryPrefixLoadsResponse();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1: {
-          if (tag !== 10) {
-            break;
-          }
-
-          message.loads.push(PrefixLoad.decode(reader, reader.uint32()));
-          continue;
-        }
-        case 2: {
-          if (tag !== 18) {
-            break;
-          }
-
-          message.pagination = PageResponse.decode(reader, reader.uint32());
-          continue;
-        }
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skip(tag & 7);
-    }
-    return message;
-  },
-
-  fromJSON(object: any): QueryPrefixLoadsResponse {
-    return {
-      loads: globalThis.Array.isArray(object?.loads) ? object.loads.map((e: any) => PrefixLoad.fromJSON(e)) : [],
-      pagination: isSet(object.pagination) ? PageResponse.fromJSON(object.pagination) : undefined,
-    };
-  },
-
-  toJSON(message: QueryPrefixLoadsResponse): unknown {
-    const obj: any = {};
-    if (message.loads?.length) {
-      obj.loads = message.loads.map((e) => PrefixLoad.toJSON(e));
-    }
-    if (message.pagination !== undefined) {
-      obj.pagination = PageResponse.toJSON(message.pagination);
-    }
-    return obj;
-  },
-
-  create<I extends Exact<DeepPartial<QueryPrefixLoadsResponse>, I>>(base?: I): QueryPrefixLoadsResponse {
-    return QueryPrefixLoadsResponse.fromPartial(base ?? ({} as any));
-  },
-  fromPartial<I extends Exact<DeepPartial<QueryPrefixLoadsResponse>, I>>(object: I): QueryPrefixLoadsResponse {
-    const message = createBaseQueryPrefixLoadsResponse();
-    message.loads = object.loads?.map((e) => PrefixLoad.fromPartial(e)) || [];
-    message.pagination = (object.pagination !== undefined && object.pagination !== null)
-      ? PageResponse.fromPartial(object.pagination)
-      : undefined;
-    return message;
-  },
-};
-
-function createBaseQueryIndexersByGroupRequest(): QueryIndexersByGroupRequest {
-  return { groupId: 0 };
-}
-
-export const QueryIndexersByGroupRequest: MessageFns<QueryIndexersByGroupRequest> = {
-  encode(message: QueryIndexersByGroupRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.groupId !== 0) {
-      writer.uint32(8).int64(message.groupId);
-    }
-    return writer;
-  },
-
-  decode(input: BinaryReader | Uint8Array, length?: number): QueryIndexersByGroupRequest {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    let end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseQueryIndexersByGroupRequest();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1: {
-          if (tag !== 8) {
-            break;
-          }
-
-          message.groupId = longToNumber(reader.int64());
-          continue;
-        }
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skip(tag & 7);
-    }
-    return message;
-  },
-
-  fromJSON(object: any): QueryIndexersByGroupRequest {
-    return { groupId: isSet(object.groupId) ? globalThis.Number(object.groupId) : 0 };
-  },
-
-  toJSON(message: QueryIndexersByGroupRequest): unknown {
-    const obj: any = {};
-    if (message.groupId !== 0) {
-      obj.groupId = Math.round(message.groupId);
-    }
-    return obj;
-  },
-
-  create<I extends Exact<DeepPartial<QueryIndexersByGroupRequest>, I>>(base?: I): QueryIndexersByGroupRequest {
-    return QueryIndexersByGroupRequest.fromPartial(base ?? ({} as any));
-  },
-  fromPartial<I extends Exact<DeepPartial<QueryIndexersByGroupRequest>, I>>(object: I): QueryIndexersByGroupRequest {
-    const message = createBaseQueryIndexersByGroupRequest();
-    message.groupId = object.groupId ?? 0;
-    return message;
-  },
-};
-
-function createBaseQueryIndexersByGroupResponse(): QueryIndexersByGroupResponse {
-  return { indexers: [], groupId: 0, hashPrefixStart: "", hashPrefixEnd: "" };
-}
-
-export const QueryIndexersByGroupResponse: MessageFns<QueryIndexersByGroupResponse> = {
-  encode(message: QueryIndexersByGroupResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    for (const v of message.indexers) {
-      IndexerRange.encode(v!, writer.uint32(10).fork()).join();
-    }
-    if (message.groupId !== 0) {
-      writer.uint32(16).int64(message.groupId);
-    }
-    if (message.hashPrefixStart !== "") {
-      writer.uint32(26).string(message.hashPrefixStart);
-    }
-    if (message.hashPrefixEnd !== "") {
-      writer.uint32(34).string(message.hashPrefixEnd);
-    }
-    return writer;
-  },
-
-  decode(input: BinaryReader | Uint8Array, length?: number): QueryIndexersByGroupResponse {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    let end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseQueryIndexersByGroupResponse();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1: {
-          if (tag !== 10) {
-            break;
-          }
-
-          message.indexers.push(IndexerRange.decode(reader, reader.uint32()));
-          continue;
-        }
-        case 2: {
-          if (tag !== 16) {
-            break;
-          }
-
-          message.groupId = longToNumber(reader.int64());
-          continue;
-        }
-        case 3: {
-          if (tag !== 26) {
-            break;
-          }
-
-          message.hashPrefixStart = reader.string();
-          continue;
-        }
-        case 4: {
-          if (tag !== 34) {
-            break;
-          }
-
-          message.hashPrefixEnd = reader.string();
-          continue;
-        }
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skip(tag & 7);
-    }
-    return message;
-  },
-
-  fromJSON(object: any): QueryIndexersByGroupResponse {
-    return {
-      indexers: globalThis.Array.isArray(object?.indexers)
-        ? object.indexers.map((e: any) => IndexerRange.fromJSON(e))
-        : [],
-      groupId: isSet(object.groupId) ? globalThis.Number(object.groupId) : 0,
-      hashPrefixStart: isSet(object.hashPrefixStart) ? globalThis.String(object.hashPrefixStart) : "",
-      hashPrefixEnd: isSet(object.hashPrefixEnd) ? globalThis.String(object.hashPrefixEnd) : "",
-    };
-  },
-
-  toJSON(message: QueryIndexersByGroupResponse): unknown {
-    const obj: any = {};
-    if (message.indexers?.length) {
-      obj.indexers = message.indexers.map((e) => IndexerRange.toJSON(e));
-    }
-    if (message.groupId !== 0) {
-      obj.groupId = Math.round(message.groupId);
-    }
-    if (message.hashPrefixStart !== "") {
-      obj.hashPrefixStart = message.hashPrefixStart;
-    }
-    if (message.hashPrefixEnd !== "") {
-      obj.hashPrefixEnd = message.hashPrefixEnd;
-    }
-    return obj;
-  },
-
-  create<I extends Exact<DeepPartial<QueryIndexersByGroupResponse>, I>>(base?: I): QueryIndexersByGroupResponse {
-    return QueryIndexersByGroupResponse.fromPartial(base ?? ({} as any));
-  },
-  fromPartial<I extends Exact<DeepPartial<QueryIndexersByGroupResponse>, I>>(object: I): QueryIndexersByGroupResponse {
-    const message = createBaseQueryIndexersByGroupResponse();
-    message.indexers = object.indexers?.map((e) => IndexerRange.fromPartial(e)) || [];
-    message.groupId = object.groupId ?? 0;
-    message.hashPrefixStart = object.hashPrefixStart ?? "";
-    message.hashPrefixEnd = object.hashPrefixEnd ?? "";
     return message;
   },
 };
@@ -3015,12 +2544,6 @@ export interface Query {
   ActiveIndexers(request: QueryActiveIndexersRequest): Promise<QueryActiveIndexersResponse>;
   /** IndexersForFile queries which indexers handle a specific file hash. */
   IndexersForFile(request: QueryIndexersForFileRequest): Promise<QueryIndexersForFileResponse>;
-  /** PrefixLoad queries the load (file count) for a specific prefix. */
-  PrefixLoad(request: QueryPrefixLoadRequest): Promise<QueryPrefixLoadResponse>;
-  /** PrefixLoads queries all prefix loads (paginated, for load analysis). */
-  PrefixLoads(request: QueryPrefixLoadsRequest): Promise<QueryPrefixLoadsResponse>;
-  /** IndexersByGroup queries all indexers in a specific replication group. */
-  IndexersByGroup(request: QueryIndexersByGroupRequest): Promise<QueryIndexersByGroupResponse>;
   /** IndexerExists checks if an indexer_id already exists. */
   IndexerExists(request: QueryIndexerExistsRequest): Promise<QueryIndexerExistsResponse>;
   /** StorageProvider queries a storage provider by provider_id to check if it exists. */
@@ -3066,9 +2589,6 @@ export class QueryClientImpl implements Query {
     this.IndexerRanges = this.IndexerRanges.bind(this);
     this.ActiveIndexers = this.ActiveIndexers.bind(this);
     this.IndexersForFile = this.IndexersForFile.bind(this);
-    this.PrefixLoad = this.PrefixLoad.bind(this);
-    this.PrefixLoads = this.PrefixLoads.bind(this);
-    this.IndexersByGroup = this.IndexersByGroup.bind(this);
     this.IndexerExists = this.IndexerExists.bind(this);
     this.StorageProvider = this.StorageProvider.bind(this);
     this.GetRandomStorageProviders = this.GetRandomStorageProviders.bind(this);
@@ -3133,24 +2653,6 @@ export class QueryClientImpl implements Query {
     const data = QueryIndexersForFileRequest.encode(request).finish();
     const promise = this.rpc.request(this.service, "IndexersForFile", data);
     return promise.then((data) => QueryIndexersForFileResponse.decode(new BinaryReader(data)));
-  }
-
-  PrefixLoad(request: QueryPrefixLoadRequest): Promise<QueryPrefixLoadResponse> {
-    const data = QueryPrefixLoadRequest.encode(request).finish();
-    const promise = this.rpc.request(this.service, "PrefixLoad", data);
-    return promise.then((data) => QueryPrefixLoadResponse.decode(new BinaryReader(data)));
-  }
-
-  PrefixLoads(request: QueryPrefixLoadsRequest): Promise<QueryPrefixLoadsResponse> {
-    const data = QueryPrefixLoadsRequest.encode(request).finish();
-    const promise = this.rpc.request(this.service, "PrefixLoads", data);
-    return promise.then((data) => QueryPrefixLoadsResponse.decode(new BinaryReader(data)));
-  }
-
-  IndexersByGroup(request: QueryIndexersByGroupRequest): Promise<QueryIndexersByGroupResponse> {
-    const data = QueryIndexersByGroupRequest.encode(request).finish();
-    const promise = this.rpc.request(this.service, "IndexersByGroup", data);
-    return promise.then((data) => QueryIndexersByGroupResponse.decode(new BinaryReader(data)));
   }
 
   IndexerExists(request: QueryIndexerExistsRequest): Promise<QueryIndexerExistsResponse> {
