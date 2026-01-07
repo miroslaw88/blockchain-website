@@ -467,43 +467,15 @@ function attachEventHandlers(walletAddress: string, currentPath: string): void {
             return;
         }
         
-        // Show confirmation modal
+        // Get merkle roots and file names
+        const merkleRoots = selectedFiles.map(f => f.merkleRoot);
         const fileNames = selectedFiles.map(f => f.fileName).join(', ');
-        const confirmMessage = `Are you sure you want to delete ${selectedFiles.length} file(s)?\n\n${fileNames}`;
-        if (!confirm(confirmMessage)) {
-            return;
-        }
         
-        try {
-            // Import deleteFile function
-            const { deleteFile } = await import('../deleteFile');
-            
-            // Get merkle roots
-            const merkleRoots = selectedFiles.map(f => f.merkleRoot);
-            
-            // Show loading state
-            const $btn = $('#deleteSelectedBtn');
-            const originalText = $btn.text();
-            $btn.prop('disabled', true).text('Deleting...');
-            
-            // Delete files
-            const result = await deleteFile(merkleRoots);
-            
-            // Show success message
-            showToast(`Successfully deleted ${result.deletedCount} file(s)`, 'success');
-            
-            // Clear selections and refresh
-            $contentArea.find('.file-select-checkbox:checked').prop('checked', false);
-            updateDeleteSelectedButton();
-            fetchFiles(walletAddress, currentPath);
-            
-            $btn.prop('disabled', false).text(originalText);
-        } catch (error) {
-            console.error('Error deleting files:', error);
-            showToast(`Failed to delete files: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
-            const $btn = $('#deleteSelectedBtn');
-            $btn.prop('disabled', false).text('Delete Selected');
-        }
+        // Show delete confirmation modal (same as single file delete)
+        showDeleteFileModal(merkleRoots, fileNames, walletAddress, currentPath);
+        
+        // Clear selections after modal is shown (they'll be cleared after successful delete)
+        // The modal will handle the actual deletion and refresh
     });
     
     // Handle checkbox changes to show/hide delete button

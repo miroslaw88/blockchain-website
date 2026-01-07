@@ -10,12 +10,18 @@ import { showToast } from './utils';
 import { fetchFiles } from './index';
 
 // Show delete file modal dialog
-export function showDeleteFileModal(merkleRoot: string, fileName: string, walletAddress: string, currentPath: string): void {
+export function showDeleteFileModal(merkleRoot: string | string[], fileName: string, walletAddress: string, currentPath: string): void {
     // Remove any existing modal
     $('#deleteFileModal').remove();
     
+    const isMultiple = Array.isArray(merkleRoot);
+    const fileCount = isMultiple ? merkleRoot.length : undefined;
+    const displayFileName = isMultiple 
+        ? fileName.split(', ').slice(0, 5).join(', ') + (fileName.split(', ').length > 5 ? ` and ${fileName.split(', ').length - 5} more...` : '')
+        : fileName;
+    
     // Create modal HTML using template
-    const modalHTML = getDeleteFileModalTemplate(fileName);
+    const modalHTML = getDeleteFileModalTemplate(displayFileName, fileCount);
     
     // Append modal to body
     $('body').append(modalHTML);
@@ -32,7 +38,8 @@ export function showDeleteFileModal(merkleRoot: string, fileName: string, wallet
     
     // Handle confirm button click
     $('#confirmDeleteFileBtn').off('click').on('click', async () => {
-        await handleDeleteFile(merkleRoot, fileName, walletAddress, currentPath, modal);
+        const merkleRoots = isMultiple ? merkleRoot : [merkleRoot];
+        await handleDeleteFile(merkleRoots, fileName, walletAddress, currentPath, modal);
     });
     
     // Handle cancel button click
@@ -47,7 +54,7 @@ export function showDeleteFileModal(merkleRoot: string, fileName: string, wallet
 }
 
 // Handle delete file
-async function handleDeleteFile(merkleRoot: string, fileName: string, walletAddress: string, currentPath: string, modal: any): Promise<void> {
+async function handleDeleteFile(merkleRoots: string[], fileName: string, walletAddress: string, currentPath: string, modal: any): Promise<void> {
     const $confirmBtn = $('#confirmDeleteFileBtn');
     const $cancelBtn = $('#cancelDeleteFileBtn');
     const $btnText = $('#deleteFileBtnText');
@@ -62,17 +69,22 @@ async function handleDeleteFile(merkleRoot: string, fileName: string, walletAddr
         $spinner.removeClass('d-none');
         $btnText.text('Deleting...');
         $status.removeClass('d-none');
-        $statusText.text('Deleting file from blockchain...');
+        $statusText.text(merkleRoots.length > 1 
+            ? `Deleting ${merkleRoots.length} files from blockchain...`
+            : 'Deleting file from blockchain...');
         
         // Execute delete file transaction
-        const result = await deleteFile([merkleRoot]);
+        const result = await deleteFile(merkleRoots);
         
         // Update status
-        $statusText.text(`File deleted successfully! (${result.deletedCount} file(s) deleted)`);
+        $statusText.text(`${result.deletedCount} file(s) deleted successfully!`);
         $status.removeClass('d-none alert-info alert-danger').addClass('alert-success');
         
         // Show success toast
-        showToast(`File "${fileName}" deleted successfully`, 'success');
+        const successMessage = merkleRoots.length > 1
+            ? `Successfully deleted ${result.deletedCount} file(s)`
+            : `File "${fileName}" deleted successfully`;
+        showToast(successMessage, 'success');
         
         // Close modal after a brief delay
         setTimeout(() => {

@@ -576,7 +576,13 @@ export function getBuyStorageModalTemplate(): string {
 /**
  * Delete File Modal Template
  */
-export function getDeleteFileModalTemplate(fileName: string): string {
+export function getDeleteFileModalTemplate(fileName: string, fileCount?: number): string {
+    const isMultiple = fileCount !== undefined && fileCount > 1;
+    const modalTitle = isMultiple ? 'Delete Files' : 'Delete File';
+    const questionText = isMultiple 
+        ? `Are you sure you want to delete the following ${fileCount} file(s)?`
+        : 'Are you sure you want to delete the following file?';
+    
     return `
         <div class="modal fade" id="deleteFileModal" tabindex="-1" aria-labelledby="deleteFileModalLabel" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
             <div class="modal-dialog modal-dialog-centered">
@@ -587,11 +593,11 @@ export function getDeleteFileModalTemplate(fileName: string): string {
                                 <polyline points="3 6 5 6 21 6"></polyline>
                                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                             </svg>
-                            Delete File
+                            ${modalTitle}
                         </h5>
                     </div>
                     <div class="modal-body">
-                        <p class="mb-3">Are you sure you want to delete the following file?</p>
+                        <p class="mb-3">${questionText}</p>
                         <div class="alert alert-warning mb-3">
                             <strong>${fileName}</strong>
                         </div>
@@ -606,7 +612,7 @@ export function getDeleteFileModalTemplate(fileName: string): string {
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" id="cancelDeleteFileBtn" data-bs-dismiss="modal">Cancel</button>
                         <button type="button" class="btn btn-danger" id="confirmDeleteFileBtn">
-                            <span id="deleteFileBtnText">Delete File</span>
+                            <span id="deleteFileBtnText">${isMultiple ? `Delete ${fileCount} File(s)` : 'Delete File'}</span>
                             <span id="deleteFileSpinner" class="spinner-border spinner-border-sm ms-2 d-none" role="status"></span>
                         </button>
                     </div>
