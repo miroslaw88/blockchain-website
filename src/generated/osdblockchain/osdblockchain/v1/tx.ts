@@ -297,14 +297,17 @@ export interface MsgCreateDirectoryResponse {
 
 /**
  * MsgDeleteFile is the Msg/DeleteFile request type.
- * This message is used to delete a file for an owner.
- * Indexer nodes will listen to the emitted event and delete the file from their local storage.
+ * This message is used to delete one or more files for an owner.
+ * Indexer nodes will listen to the emitted events and delete the files from their local storage.
  */
 export interface MsgDeleteFile {
-  /** owner is the address that owns the file. */
+  /** owner is the address that owns the file(s). */
   owner: string;
-  /** merkle_root is the Merkle root hash of the file to delete. */
-  merkleRoot: string;
+  /**
+   * merkle_roots is the list of Merkle root hashes of the files to delete.
+   * Supports deleting one or more files in a single transaction.
+   */
+  merkleRoots: string[];
 }
 
 /**
@@ -312,8 +315,10 @@ export interface MsgDeleteFile {
  * MsgDeleteFile message.
  */
 export interface MsgDeleteFileResponse {
-  /** deleted_at is the Unix timestamp when the file was deleted (seconds). */
+  /** deleted_at is the Unix timestamp when the files were deleted (seconds). */
   deletedAt: number;
+  /** deleted_count is the number of files successfully deleted. */
+  deletedCount: number;
 }
 
 /**
@@ -2223,7 +2228,7 @@ export const MsgCreateDirectoryResponse: MessageFns<MsgCreateDirectoryResponse> 
 };
 
 function createBaseMsgDeleteFile(): MsgDeleteFile {
-  return { owner: "", merkleRoot: "" };
+  return { owner: "", merkleRoots: [] };
 }
 
 export const MsgDeleteFile: MessageFns<MsgDeleteFile> = {
@@ -2231,8 +2236,8 @@ export const MsgDeleteFile: MessageFns<MsgDeleteFile> = {
     if (message.owner !== "") {
       writer.uint32(10).string(message.owner);
     }
-    if (message.merkleRoot !== "") {
-      writer.uint32(18).string(message.merkleRoot);
+    for (const v of message.merkleRoots) {
+      writer.uint32(18).string(v!);
     }
     return writer;
   },
@@ -2257,7 +2262,7 @@ export const MsgDeleteFile: MessageFns<MsgDeleteFile> = {
             break;
           }
 
-          message.merkleRoot = reader.string();
+          message.merkleRoots.push(reader.string());
           continue;
         }
       }
@@ -2272,7 +2277,9 @@ export const MsgDeleteFile: MessageFns<MsgDeleteFile> = {
   fromJSON(object: any): MsgDeleteFile {
     return {
       owner: isSet(object.owner) ? globalThis.String(object.owner) : "",
-      merkleRoot: isSet(object.merkleRoot) ? globalThis.String(object.merkleRoot) : "",
+      merkleRoots: globalThis.Array.isArray(object?.merkleRoots)
+        ? object.merkleRoots.map((e: any) => globalThis.String(e))
+        : [],
     };
   },
 
@@ -2281,8 +2288,8 @@ export const MsgDeleteFile: MessageFns<MsgDeleteFile> = {
     if (message.owner !== "") {
       obj.owner = message.owner;
     }
-    if (message.merkleRoot !== "") {
-      obj.merkleRoot = message.merkleRoot;
+    if (message.merkleRoots?.length) {
+      obj.merkleRoots = message.merkleRoots;
     }
     return obj;
   },
@@ -2293,19 +2300,22 @@ export const MsgDeleteFile: MessageFns<MsgDeleteFile> = {
   fromPartial<I extends Exact<DeepPartial<MsgDeleteFile>, I>>(object: I): MsgDeleteFile {
     const message = createBaseMsgDeleteFile();
     message.owner = object.owner ?? "";
-    message.merkleRoot = object.merkleRoot ?? "";
+    message.merkleRoots = object.merkleRoots?.map((e) => e) || [];
     return message;
   },
 };
 
 function createBaseMsgDeleteFileResponse(): MsgDeleteFileResponse {
-  return { deletedAt: 0 };
+  return { deletedAt: 0, deletedCount: 0 };
 }
 
 export const MsgDeleteFileResponse: MessageFns<MsgDeleteFileResponse> = {
   encode(message: MsgDeleteFileResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.deletedAt !== 0) {
       writer.uint32(8).int64(message.deletedAt);
+    }
+    if (message.deletedCount !== 0) {
+      writer.uint32(16).int64(message.deletedCount);
     }
     return writer;
   },
@@ -2325,6 +2335,14 @@ export const MsgDeleteFileResponse: MessageFns<MsgDeleteFileResponse> = {
           message.deletedAt = longToNumber(reader.int64());
           continue;
         }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.deletedCount = longToNumber(reader.int64());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -2335,13 +2353,19 @@ export const MsgDeleteFileResponse: MessageFns<MsgDeleteFileResponse> = {
   },
 
   fromJSON(object: any): MsgDeleteFileResponse {
-    return { deletedAt: isSet(object.deletedAt) ? globalThis.Number(object.deletedAt) : 0 };
+    return {
+      deletedAt: isSet(object.deletedAt) ? globalThis.Number(object.deletedAt) : 0,
+      deletedCount: isSet(object.deletedCount) ? globalThis.Number(object.deletedCount) : 0,
+    };
   },
 
   toJSON(message: MsgDeleteFileResponse): unknown {
     const obj: any = {};
     if (message.deletedAt !== 0) {
       obj.deletedAt = Math.round(message.deletedAt);
+    }
+    if (message.deletedCount !== 0) {
+      obj.deletedCount = Math.round(message.deletedCount);
     }
     return obj;
   },
@@ -2352,6 +2376,7 @@ export const MsgDeleteFileResponse: MessageFns<MsgDeleteFileResponse> = {
   fromPartial<I extends Exact<DeepPartial<MsgDeleteFileResponse>, I>>(object: I): MsgDeleteFileResponse {
     const message = createBaseMsgDeleteFileResponse();
     message.deletedAt = object.deletedAt ?? 0;
+    message.deletedCount = object.deletedCount ?? 0;
     return message;
   },
 };

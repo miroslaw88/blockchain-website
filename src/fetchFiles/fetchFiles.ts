@@ -98,13 +98,12 @@ export async function fetchFiles(walletAddress: string, path: string = ''): Prom
             path: string;
             merkle_root?: string;
             owner?: string;
-            size_bytes?: string;
+            size?: string;
             expiration_time?: string;
             max_proofs?: string;
             metadata?: string;
             uploaded_at?: string;
             extra_data?: string;
-            extraData?: string;
             encrypted_file_key?: string;
             chunk_count?: number;
         }> = data.entries || [];
@@ -128,6 +127,8 @@ export async function fetchFiles(walletAddress: string, path: string = ''): Prom
             // If both are directories, maintain original order
             return 0;
         });
+
+        console.log('Sorted entries:', sortedEntries);
         
         // Store current path in sessionStorage for uploads (even if no entries)
         // Normalize the path: use "/" for root, ensure no double slashes
@@ -209,7 +210,7 @@ export async function fetchFiles(walletAddress: string, path: string = ''): Prom
                 // Get filename from original_name (hashed format stores original in original_name)
                 const fileName = metadata.original_name || entry.name || 'Unknown File';
                 const contentType = metadata.content_type || 'application/octet-stream';
-                const sizeBytes = parseInt(entry.size_bytes || '0', 10);
+                const sizeBytes = parseInt(entry.size || '0', 10);
                 const fileSize = formatFileSize(sizeBytes);
                 const uploadDate = formatDate(parseInt(entry.uploaded_at || '0', 10));
                 const expirationDate = formatDate(parseInt(entry.expiration_time || '0', 10));
@@ -219,7 +220,20 @@ export async function fetchFiles(walletAddress: string, path: string = ''): Prom
                 // Get encrypted file key from indexer response
                 const encryptedFileKey = entry.encrypted_file_key || '';
                 // Get chunk_count from indexer response
-                const chunkCount = entry.chunk_count || 1;
+                // Try multiple possible field names (snake_case and camelCase)
+                let chunkCount = entry.chunk_count || entry.chunkCount;
+                // If not found, try to count from chunks array if available
+                if (!chunkCount && entry.chunks && Array.isArray(entry.chunks)) {
+                    chunkCount = entry.chunks.length;
+                    console.log(`chunk_count not in response, counted from chunks array: ${chunkCount}`);
+                }
+                // Default to 1 if still not found
+                if (!chunkCount || chunkCount < 1) {
+                    chunkCount = 1;
+                    console.warn(`chunk_count not found for file ${merkleRoot}, defaulting to 1. Entry keys:`, Object.keys(entry));
+                } else {
+                    console.log(`File ${merkleRoot}: chunk_count=${chunkCount}`);
+                }
                 // Get extraData from indexer response (e.g., MPEG-DASH manifest)
                 // Indexer returns snake_case: extra_data
                 const extraDataRaw = entry.extra_data || '';
@@ -430,6 +444,95 @@ function attachEventHandlers(walletAddress: string, currentPath: string): void {
         // Show video player modal
         showVideoPlayerModal(merkleRoot, fileName, decodedExtraData, chunkCount);
     });
+    
+    // Handle bulk delete selected files
+    $('#deleteSelectedBtn').off('click').on('click', async function() {
+        const selectedCheckboxes = $contentArea.find('.file-select-checkbox:checked');
+        if (selectedCheckboxes.length === 0) {
+            showToast('No files selected', 'info');
+            return;
+        }
+        
+        const selectedFiles: Array<{ merkleRoot: string; fileName: string }> = [];
+        selectedCheckboxes.each(function() {
+            const merkleRoot = $(this).attr('data-merkle-root');
+            const fileName = $(this).attr('data-file-name');
+            if (merkleRoot) {
+                selectedFiles.push({ merkleRoot, fileName: fileName || 'file' });
+            }
+        });
+        
+        if (selectedFiles.length === 0) {
+            showToast('No valid files selected', 'info');
+            return;
+        }
+        
+        // Show confirmation modal
+        const fileNames = selectedFiles.map(f => f.fileName).join(', ');
+        const confirmMessage = `Are you sure you want to delete ${selectedFiles.length} file(s)?\n\n${fileNames}`;
+        if (!confirm(confirmMessage)) {
+            return;
+        }
+        
+        try {
+            // Import deleteFile function
+            const { deleteFile } = await import('../deleteFile');
+            
+            // Get merkle roots
+            const merkleRoots = selectedFiles.map(f => f.merkleRoot);
+            
+            // Show loading state
+            const $btn = $('#deleteSelectedBtn');
+            const originalText = $btn.text();
+            $btn.prop('disabled', true).text('Deleting...');
+            
+            // Delete files
+            const result = await deleteFile(merkleRoots);
+            
+            // Show success message
+            showToast(`Successfully deleted ${result.deletedCount} file(s)`, 'success');
+            
+            // Clear selections and refresh
+            $contentArea.find('.file-select-checkbox:checked').prop('checked', false);
+            updateDeleteSelectedButton();
+            fetchFiles(walletAddress, currentPath);
+            
+            $btn.prop('disabled', false).text(originalText);
+        } catch (error) {
+            console.error('Error deleting files:', error);
+            showToast(`Failed to delete files: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+            const $btn = $('#deleteSelectedBtn');
+            $btn.prop('disabled', false).text('Delete Selected');
+        }
+    });
+    
+    // Handle checkbox changes to show/hide delete button
+    $contentArea.off('change', '.file-select-checkbox');
+    $contentArea.on('change', '.file-select-checkbox', function(e) {
+        // Prevent card click when clicking checkbox
+        e.stopPropagation();
+        updateDeleteSelectedButton();
+    });
+    
+    // Prevent card click when clicking checkbox
+    $contentArea.off('click', '.file-select-checkbox');
+    $contentArea.on('click', '.file-select-checkbox', function(e) {
+        e.stopPropagation();
+    });
+    
+    // Function to update delete selected button visibility
+    function updateDeleteSelectedButton() {
+        const selectedCount = $contentArea.find('.file-select-checkbox:checked').length;
+        const $deleteBtn = $('#deleteSelectedBtn');
+        if (selectedCount > 0) {
+            $deleteBtn.show().text(`Delete Selected (${selectedCount})`);
+        } else {
+            $deleteBtn.hide();
+        }
+    }
+    
+    // Initialize button visibility on page load
+    updateDeleteSelectedButton();
     
     // Add click handler for share file buttons
     $contentArea.off('click', '.share-file-btn');

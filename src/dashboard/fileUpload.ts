@@ -1,15 +1,60 @@
 // File upload functionality
 
 import { getKeplr, CHAIN_ID } from '../utils';
-import { encryptFile, encryptFileKeyWithECIES, calculateMerkleRoot, buildMerkleTree, hashFilename, genAesBundle } from '../osd-blockchain-sdk';
+import { encryptFile, encryptFileKeyWithECIES, calculateMerkleRoot, buildMerkleTree, hashFilename, genAesBundle, IAesBundle, AES_TAG_LENGTH } from '../osd-blockchain-sdk';
 import { postFile } from '../postFile';
 import { fetchFiles } from '../fetchFiles';
 import { showUploadProgressToast, updateUploadingFileProgress, finalizeUploadingFile } from './uploadProgress';
 import { showToast } from '../fetchFiles';
 import { generateDashManifest } from './generateDashManifest';
+// import { segmentVideoIntoM4S } from './videoSegmentation'; // Video segmentation disabled for now
 
 // Flag to prevent concurrent uploads
 let isUploading = false;
+
+/**
+ * Encrypts a single blob/segment without chunking (for video segments)
+ * Each segment is encrypted as a single unit
+ */
+async function encryptSegment(
+    segmentData: ArrayBuffer,
+    aesBundle: IAesBundle,
+    isFirstSegment: boolean
+): Promise<Blob> {
+    // Use bundle IV (first 12 bytes) for first segment, random IVs for subsequent segments
+    // GCM requires 12-byte IVs
+    const iv = isFirstSegment 
+        ? aesBundle.iv.slice(0, 12)  // Use first 12 bytes of bundle IV for first segment
+        : crypto.getRandomValues(new Uint8Array(12));  // Random IVs for other segments
+    
+    // Encrypt segment with AES-256-GCM (includes authentication tag)
+    const encryptedSegmentData = await crypto.subtle.encrypt(
+        { 
+            name: 'AES-GCM',
+            iv: iv,
+            tagLength: AES_TAG_LENGTH
+        },
+        aesBundle.key,
+        segmentData
+    );
+    
+    // Format: [8-byte size header][12-byte IV][encrypted segment + 16-byte tag]
+    // Size header includes: IV (12) + encrypted data + tag (16)
+    const encryptedSegmentArray = new Uint8Array(encryptedSegmentData);
+    const segmentSize = iv.length + encryptedSegmentArray.length; // 12 + encrypted + 16
+    
+    // Create size header (8 bytes, padded with zeros)
+    const sizeHeader = segmentSize.toString().padStart(8, '0');
+    const sizeHeaderBytes = new TextEncoder().encode(sizeHeader);
+    
+    // Combine: size header + IV + encrypted segment
+    const combinedSegment = new Uint8Array(sizeHeaderBytes.length + segmentSize);
+    combinedSegment.set(sizeHeaderBytes, 0);
+    combinedSegment.set(iv, sizeHeaderBytes.length);
+    combinedSegment.set(encryptedSegmentArray, sizeHeaderBytes.length + iv.length);
+    
+    return new Blob([combinedSegment]);
+}
 
 // Upload chunk to storage provider
 async function uploadChunkToStorageProvider(
@@ -142,9 +187,12 @@ export async function uploadFile(file: File): Promise<void> {
         const fileData = await file.arrayBuffer();
         const originalFileHash = await calculateMerkleRoot(fileData);
 
-        // Step 2.5: Generate MPEG-DASH manifest for video files (before encryption)
+        // Step 2.5: Video segmentation is currently disabled - upload videos like regular files
+        const isVideoFile = file.type.startsWith('video/');
+        
+        // Step 2.6: Generate MPEG-DASH manifest for video files (before encryption)
         let dashManifest: string | null = null;
-        if (file.type.startsWith('video/')) {
+        if (isVideoFile) {
             updateUploadingFileProgress(uploadId, 7, 'Generating MPEG-DASH manifest...');
             try {
                 dashManifest = await generateDashManifest(file);
@@ -156,15 +204,15 @@ export async function uploadFile(file: File): Promise<void> {
             }
         }
 
-        // Step 3: Generate per-file AES bundle and encrypt file
+        // Step 3: Generate per-file AES bundle and encrypt file/segments
         updateUploadingFileProgress(uploadId, 10, 'Generating file encryption key...');
         
         // Generate unique AES bundle for this file (like Jackal)
         const fileAesBundle = await genAesBundle();
         
-        updateUploadingFileProgress(uploadId, 15, 'Encrypting file...');
+        updateUploadingFileProgress(uploadId, 15, isVideoFile ? 'Encrypting video segments...' : 'Encrypting file...');
         
-        // Encrypt file with per-file AES bundle
+        // Encrypt file using normal chunking (10MB chunks) - videos are treated like regular files
         const encryptedChunks = await encryptFile(file, fileAesBundle);
         
         // Encrypt file's AES bundle with owner's public key for storage in transaction

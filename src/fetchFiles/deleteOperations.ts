@@ -65,10 +65,10 @@ async function handleDeleteFile(merkleRoot: string, fileName: string, walletAddr
         $statusText.text('Deleting file from blockchain...');
         
         // Execute delete file transaction
-        await deleteFile(merkleRoot);
+        const result = await deleteFile([merkleRoot]);
         
         // Update status
-        $statusText.text('File deleted successfully!');
+        $statusText.text(`File deleted successfully! (${result.deletedCount} file(s) deleted)`);
         $status.removeClass('d-none alert-info alert-danger').addClass('alert-success');
         
         // Show success toast

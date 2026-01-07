@@ -10,6 +10,9 @@ export function getFilesViewTemplate(walletAddress: string): string {
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0" id="filesViewHeader">Files and Folders (0 files, 0 folders)</h5>
                 <div class="d-flex align-items-center gap-2">
+                    <button class="btn btn-sm btn-danger" id="deleteSelectedBtn" title="Delete Selected" style="display: none;">
+                        Delete Selected
+                    </button>
                     <button class="btn btn-sm btn-outline-secondary" id="sharedToolbarBtn" title="Shared">
                         Shared
                     </button>
@@ -60,9 +63,16 @@ export function getFileThumbnailTemplate(
     return `
         <div class="col-md-3 col-sm-4 col-6 mb-4">
             <div class="card h-100 file-thumbnail ${isExpired ? 'border-warning' : ''}" 
-                 style="transition: transform 0.2s;"
+                 style="transition: transform 0.2s; position: relative;"
                  ${extraData ? `data-extra-data="${escapedExtraData}"` : ''}
-                 ${chunkCount ? `data-chunk-count="${chunkCount}"` : ''}>
+                 ${chunkCount ? `data-chunk-count="${chunkCount}"` : ''}
+                 data-merkle-root="${merkleRoot}">
+                <div class="position-absolute top-0 start-0 m-2">
+                    <input type="checkbox" class="form-check-input file-select-checkbox" 
+                           data-merkle-root="${merkleRoot}" 
+                           data-file-name="${fileName}"
+                           style="width: 18px; height: 18px; cursor: pointer; z-index: 10;">
+                </div>
                 <div class="card-body text-center p-3">
                     <div class="file-icon mb-2" style="color: #6c757d;">
                         ${fileIcon}

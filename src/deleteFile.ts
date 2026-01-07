@@ -5,9 +5,10 @@ import { getKeplr, CHAIN_ID } from './utils';
 export interface DeleteFileResult {
     transactionHash: string;
     deletedAt: number;
+    deletedCount: number;
 }
 
-export async function deleteFile(merkleRoot: string): Promise<DeleteFileResult> {
+export async function deleteFile(merkleRoots: string[]): Promise<DeleteFileResult> {
     const keplr = getKeplr();
     if (!keplr) {
         throw new Error('Keplr not available');
@@ -51,26 +52,30 @@ export async function deleteFile(merkleRoot: string): Promise<DeleteFileResult> 
     console.log('Current account sequence:', account.sequence);
 
     // Create message using the generated type
+    // The generated type uses merkleRoots (array) - check the generated types
     const msg = {
         typeUrl: '/osdblockchain.osdblockchain.v1.MsgDeleteFile',
         value: MsgDeleteFile.fromPartial({
             owner: userAddress,
-            merkleRoot: merkleRoot
+            merkleRoots: merkleRoots
         })
     };
 
     // Send transaction
+    // Increase gas for multiple files (200000 base + 50000 per additional file)
+    const gasAmount = 200000 + (merkleRoots.length - 1) * 50000;
     const fee = {
         amount: [{ denom: "stake", amount: "0" }],  // Fees = 0
-        gas: '200000'
+        gas: gasAmount.toString()
     };
 
-    console.log('Broadcasting delete file transaction with sequence:', account.sequence);
+    console.log(`Broadcasting delete ${merkleRoots.length} file(s) transaction with sequence:`, account.sequence);
+    console.log('Merkle roots to delete:', merkleRoots);
     const result = await signingClient.signAndBroadcast(
         userAddress,
         [msg],
         fee,
-        'Delete file from blockchain'
+        `Delete ${merkleRoots.length} file(s) from blockchain`
     );
 
     if (result.code !== 0) {
@@ -78,10 +83,33 @@ export async function deleteFile(merkleRoot: string): Promise<DeleteFileResult> 
     }
 
     console.log('Delete file transaction successful:', result.transactionHash);
+    
+    // Parse response to get deleted_count
+    // The response events should contain deleted_count
+    let deletedCount = merkleRoots.length; // Default to number of files we tried to delete
+    try {
+        // Try to extract deleted_count from events
+        if (result.events) {
+            for (const event of result.events) {
+                if (event.type === 'delete_file' || event.type === 'osdblockchain.osdblockchain.v1.EventDeleteFile') {
+                    const deletedCountAttr = event.attributes?.find((attr: any) => 
+                        attr.key === 'deleted_count' || attr.key === 'deletedCount'
+                    );
+                    if (deletedCountAttr) {
+                        deletedCount = parseInt(deletedCountAttr.value, 10);
+                        break;
+                    }
+                }
+            }
+        }
+    } catch (e) {
+        console.warn('Could not parse deleted_count from response, using default:', e);
+    }
 
     return {
         transactionHash: result.transactionHash,
-        deletedAt: Math.floor(Date.now() / 1000)
+        deletedAt: Math.floor(Date.now() / 1000),
+        deletedCount: deletedCount
     };
 }
 
